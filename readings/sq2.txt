@@ -1,0 +1,3 @@
+# question 1: a question
+The authors describe systems that handle millions of requests per second. Don't the number of possible system traces for any system grow exponentially in time? How can TLA+ check more than a few seconds of operation for a system like that?
+

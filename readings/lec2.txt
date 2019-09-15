@@ -1,0 +1,5 @@
+> The Amazon paper describes the experiences of the individual authors with different systems they built at Amazon and specifying their behavior using TLA+ or PlusCal. What is the value for the authors to write specifications? Why is there a value to specification, even though the authors don't verify that their implementations meets their specifications? 
+
+It seems to be a combination of forcing engineers to clarify their assumptions + requirements, and then doing actual verification that those assumptions meet the requirements. It's sorta like "rubber duck" debugging, except the rubber duck can answer your questions and will attack you if you lie.
+
+For example, the authors note that sometimes just writing partial TLA+ specs and not verifying them can still be helpful. Of course, the verification is helpful too, since it can quickly discover subtle bugs in complex situations that nobody would have come up with by hand.

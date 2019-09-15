@@ -1,0 +1,236 @@
+#+TITLE: lecture 2: specifications
+#+AUTHOR: James Gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: September 10 2019
+#+OPTIONS: tex:t latex:t
+
+* a few words on the formal methods we're using in the course
+   Butler Lampson
+
+   methods are commonly overestimated; many can't be made practical
+
+   several different ways we can do this
+
+** aspect 1: using Coq to produce formal, machine-checkable proofs of executable code
+   the holy grail of the formal methods world
+   possible to do, but very hard
+   really only necessary when it's *extremely important*
+   most of the time it's not practical to do this fully
+   however, there are other things you can get out of this!
+
+** aspect 2: other applications of this set of techniques
+   give a fairly convincing machine-checked proof of *something*
+   e.g. typechecking; lets the compiler prove certain properties of your program
+   - that arguments are correct types to functions
+   - that return types are correct
+   very widely deployed!
+   fundamental argument: this makes the programmer's life easier
+
+** aspect 3: using techniques for *design*
+   idea: want to design systems using these techniques
+   if i'm not getting a machine-checked proof of my executable, what am i getting?
+   not even getting a model check!
+   what you're getting is much more restricted than that; but if you believe the authors, it still pays off.
+   why?
+
+   system is complex; distributed, need fault-tolerance; can get into all sorts of wacky states. can be hard to imagine on your own.
+   if you're doing a design and you don't have this apparatus, your design will be fairly fuzzy.
+   e.g. a web search engine: no spec! these techniques aren't useful at that high a level.
+
+   but amazon aren't at that high level; they're only trying to design a super-reliable service.
+   having something that goes wrong 1 in 10,000,000 times is still way too much!
+   have applied other techniques, but didn't work very well. for distributed systems, not powerful enough.
+
+   in this world, the tools take 2 forms:
+   1. precise spec + high-level code
+      * makes less fuzzy
+   3. model checking: systematically explore state space.
+      can't explore state space of real, massive system;
+      but experience says exploring a smaller state space can still be helpful.
+
+   good and bad. model checker is fairly easy; but we want to make sure we're exploring the *right part* of the state space.
+   will give good, explicit examples; but can't
+
+   ^ vs fault injection:
+   checker explores whole (subset of) state space; fault injection is just randomness, often handled by code fault handling
+   "chaos monkey has its place", but it's inefficient; consume a lot of resources, but don't find a lot of bugs; don't know how much you've learned.
+
+   the model checker has this problem that "it can only explore 10s of millions of steps"
+
+   ^ vs symbolic execution?
+   not the same as symbolic execution: at base they have very different concepts; model checkers explore concrete states.
+   (model checkers do include symbolic execution, though.)
+
+   ^ what's the starting state? well, what's the starting state of your system?
+   comment: we're often not good at choosing starting state of your system. sometimes when we reboot systems they're still borked!
+
+   ^ how does the spec get maintained? lots of people working on system!
+   hard! but, first order: keep it small.
+   and in general can't confirm that spec is correct.
+   one way to keep spec small: use same techniques you use to write good code.
+
+   dave parness used to say that "requirements documents should be able to pass the coffee-stain test".
+   i.e. if you ask to see the copy of the docs, and they're sitting on the shelf pristine, they're useless; if they've got coffee stains,
+   they're actually being used on desks!
+
+   when Lampson was working on board to determine how to write reliable software:
+   > chief software engineer of the f-35: "there is no way to meet the specs", holy shit lol
+   > 15 years ago!
+
+* modeling
+
+  can always model system as a state machine
+  several aspects cause problems
+
+** model as a system with a *global state* and *atomic steps*
+
+   hard to understand how to model distributed systems as a single state machine.
+   for a long time, people tried to model systems separately and include communication in modeling layer. wrong!
+
+   you can model all possible interleavings of individual operations instead.
+
+   can *always* faithfully model system as a single state machine. doesn't need to be any more complicated.
+
+   correct way to understand concurrency is that it introduces *nondeterminism* into the state machine.
+
+   atomic steps: always ask whether something can happen in the middle of a transition.
+   if something can, it should be modeled as multiple transitions.
+
+   if two steps touch different parts of the state, disjoint; it doesn't matter what order you execute them.
+   that is, they *commute*.
+
+   the bread and butter of how you make the state machine system actually work. essential question you have to ask is:
+   which operations commute? then you can sort them out.
+
+   TLA+/TLC does this. we'll be doing this in Coq by hand, proving that things commute.
+
+** what is a spec?
+   > a miserable little pile of transitions.
+
+   a way of writing down the possible behaviors of the system.
+   $a; b; c; d$
+   $a; x; y; d$
+   typically these sequences will be infinite.
+   spec is just some set of these behaviors.
+
+   ^ what's the difference between this and actual implication?
+   from this perspective, nothing! but in practice, real system takes way more steps; lower-level.
+
+   often have multiple layers of design. each layer must implement layer above.
+
+   what does it mean to say "code implements design"?
+   answer: behavior of the is a subset of the behavior allowed by the spec.
+   that is: sequence of
+
+   wouldn't we want it to be exactly the same set?
+   no: spec optimized for clarity, code optimized for performance; very different things.
+
+   e.g.: have sequential threads, but can interleave the two any way you want.
+   however, processor probably won't hit all of the
+
+   * presumably you can define some map from lower-level behavior to higher-level behavior.
+   yes: you only care about *visible* behavior! i.e. map the last instruction executed as part of the operation to the operation as a whole.
+
+   * note: this all throws out lots of lower level detail, so it isn't entirely correct. but that's fine! it's just a tool to help; it's not magic.
+
+** what sorts of properties can we model?
+*** safety
+    "nothing bad happens"
+    making sure that spec is not violated
+    hard performance requirements are actually *safety* specs
+*** liveness
+    "eventually, something good will happen"
+    making sure that system doesn't go down
+
+   ^ isn't coq total?
+   coq *expressions* always terminate, but that doesn't mean that the system you're modeling will in time.
+
+   someone told Lampson: if you look at a liveness proof, the heart is almost always a counting argument -- e.g. a safety property
+
+   we won't care about performance too much; but one of the problems with large systems is that you lose control of performance.
+
+   e.g. internet; usually performance is good, but sometimes it's extremely poor.
+
+   now that people stick the network in the middle of their systems all the time, this can be a real problem.
+
+   amazon people don't say this; but, in datacenters, this is (somewhat) more controllable.
+
+** a note on concurrency
+   concurrency introduces nondeterminism.
+
+   canonical, easy case is serial things operating on disjoint parts of the state. therefore, everything commutes.
+
+   however. plenty of things you can do to muck that up. e.g., sending messages, writing shared state, reading realtime clocks.
+   these things don't commute.
+
+   keep in the back of your mind: concurrency is nondeterminism.
+
+* a sketch of specifying and designing a system according to these principles.
+  define:
+  - initial state.
+  - steps.
+
+  goals:
+  A. meet user needs
+  B. free the implementer
+
+  much harder than it looks! have to figure out what the user needs; very hard to disconnect yourself from the implementation.
+  but, it pays off big time.
+
+  bad example: adding "file opened first has first file descriptor" seems nice, but meeting the spec means that the fs *cannot* open files concurrently!
+  don't want to pin down the implementation like this.
+
+  how to:
+
+  1. write the spec state.
+     some form of mathematical description. lots of options.
+
+  2. write the spec actions / steps.
+     story underlying TLA and all similar states:
+     there is a *relation* between a state and the state following it.
+
+     $$ R(s_1, s_2) $$
+     $$ R(s_1, s_3) $$
+     $$ R(s_2, s_3) $$
+
+     n.b. relation, not a function, because inputs can be repeated, e.g. nondeterminism.
+
+     can also define predicates.
+     P(s, s'): x' = x + 1
+
+     pretty easy to convert any semantics to this predicate form.
+     * and from there to relations.
+
+     now we're done with the spec!
+
+  3. write down code state + steps; i.e. an *abstraction function*.
+     takes a lot more detail, etc.
+     conceptually: exactly the same as what you wrote down in the spec.
+
+     but code is much more detailed. how do we match state?
+
+     write abstraction function: maps visible behavior to spec behavior.
+
+     s:    a     b     c     d
+     f:    ^     ^     ^     ^
+     c:    a xxx b xyx c vzy d
+
+     ...but, this is hard! infinite sequences.
+     cool idea; use mathematical induction.
+
+     write f that maps code *state* to spec *state*.
+
+     then, look at all code actions; and make sure that those actions affect code states in ways that are legal when mapped to spec states.
+
+     so now we've reduced an infinite problem to a finite, solvable problem.
+
+     * i already do this as muscle memory, lol
+
+     often not easy to find an abstraction function. once you do, you've often gained a much deeper understanding.
+     you sorta need to do step 4 to figure out if your function is good.
+
+     sometimes need to do hacking; will look at what that means in a few weeks.
+
+  4. do simulation proof.
+
+     hard!

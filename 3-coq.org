@@ -1,0 +1,71 @@
+#+TITLE: lecture 3: coq
+#+AUTHOR: James Gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: September 12 2019
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* coq overview
+
+parts:
+- vernac
+- gallina
+- ltac
+
+some example vernac:
+Inductive.
+  Record.
+  Definition.
+  Fixpoint.
+  Inductive.
+  Record.
+  Definition.
+  Fixpoint.
+  Search.
+
+theorem.
+- hypothesis: just a gallina expression
+- breaks down into goals
+- met with tactics
+
+good to structure proofs with `{}`.
+enforce that:
+
+#+BEGIN_SRC coq
+Global Set Default Goal Selector "!".
+#+END_SRC
+
+* tactics
+intros: bring in variables from hypothesis
+rewrite H: rewrite w/ hypothesis
+replace (complex) with name:
+reflexivity. simplify somewhat + reduce equality to boolean
+destruct: case analysis. (Use to "undo" a `match`.)
+simpl. simplify
+lia. simplify *HARDER*. (for linear integer systems.)
+rewrite (vs rewrite <-?)
+induction. introduces induction hypothesis IHm
+to prove specific goal: `2: {...}`
+can also use assert / cut.
+  assert: proves immediately; becomes hypothesis.
+  cut: gives immediately; prove later.
+e_auto.
+apply.
+f_equal.
+
+Search "+" for facts about +.
+
+there's stuff about "stronger than omega" and "only reducing the head"
+
+can turn off notation (TODO: figure how that is doable in spacemacs)
+
+tips:
+- break out lemmas for readability.
+- use "Admitted" to check if it's worth proving something
+- "simpl." isn't "simplifying" code; it's applying a bit of a function.
+  if it doesn't work, try unfolding some definitions.
+
+why not use TLA+?
+well, all of these things kinda suck
+
+coq is much more general; which is good and bad.
