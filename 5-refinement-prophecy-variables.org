@@ -1,0 +1,177 @@
+#+TITLE: refinement and prophecy variables
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: september 17 2019
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* intro
+  don't worry if you don't get prophecy variables; don't worry if you still don't get them after the lecture. it's pretty rare they're actually used.
+
+  the setup:
+
+** 1: state machines
+   state machine $S$, action function $a : S \times S \to \mathbb{B}$
+
+   if $a(s, s')$ is true, then $s'$ can be reached from $s$ (*jhgilles*: in one step?)
+
+   $a(s, s')$ and $a(s, s'')$ can both be true
+
+** 2: visibility
+   we're only looking at *externally visible* actions
+
+   we usually look at this in a different way, as procedure calls on a module; but those can be lowered to a state machine w/ externally visible actions
+
+   note: procedures do not have to map directly to state transitions! especially in the case of concurrency, when even operations like "read" have two parts
+
+** 3: satisfy a spec
+   visible behavior of code is a subset of spec
+
+** 4: safety vs lifeness
+   safety: nothing bad ever happens
+   liveness: something good eventually happens
+
+   we mostly treat with safety in this course
+    - liveness can often be treated as safety
+    - liveness proofs are harder; they cannot be characterized by finite behavior.
+      have to deal with infinite traces, which is usually harder.
+
+   to ensure liveness (*jhg*: as a safety spec?), time has to be treated as part of the state
+
+* worked examples
+** past: filesystems
+   spec: a file $F$ is a size $\mathtt{sz}$ and a map
+   code: a file $F is a size sz, a map Nat -> disk address DA
+
+** now: memory
+   spec: $M = \mathtt{addr} \to \mathtt{value}$
+   code: multiple impls
+   - Cache
+   - Hash Table
+   - Majority (distributed setting)
+
+*** cache
+
+    *spec*:
+    const $\mathtt{csize} : \mathbb{N}$, max number of entries that can be non-none
+    var $m : 0 .. \mathtt{maxA} \to \mathtt{byte}$
+    var $c : 0 .. \mathtt{maxA} \to (\mathtt{byte} | \mathtt{none})$
+
+    think of cache as an overlay: if $c(a) \ne \mathtt{none}$, use $c(a)$, otherwise use $m(a)$
+
+    *code*
+    multiple addressed per cache slot (line?)
+
+    note that we have nondeterministic spec: hardware can make arbitrary choices as to what
+    to keep in cache; in practice, lots of replacement strategies to choose from
+
+* on proofs w/ abstraction relations
+  abstraction relation $F$
+
+  prove by induction:
+
+  start in valid code + state
+
+  given a code state $t$, a spec state $s$, transition $\pi$, $F(t, s)$,
+  show $\pi(t, t') \land \pi(s, s') \land F(t', s')$
+
+  that is:
+  #+BEGIN_SRC
+    pi
+  s---->s'
+  ^    ^
+F |    | F
+  |    |
+  t---->t'
+    pi
+
+  #+END_SRC
+
+  side-channel problem: what about externally visible stuff from code?
+  we mostly just ignore that.
+
+  also, lower-level stuff can be much more detailed.
+
+* when doesn't it work?
+** history variables: the common case
+   take StatDB from lecture 4
+
+   spec includes whole history of added variables; code does not
+
+   add *history variables* to code that are elided at runtime.
+   in many cases, essentially just the state of the spec!
+
+   ground rules of history variables:
+   - code step can use them and change them
+   - the effects of modifying them cannot be externally visible
+     (*jhg*: is there some way to model that formally?)
+
+   note: don't have to include *entire* spec state, only the missing pieces
+
+   for spec state, add:
+   $\mathtt{hvar} \mathtt{db} = $previously added variables
+
+   *objection*: if this spec is so far from the code, isn't it garbage?
+   *answer*: well, depends on your camp. for Butler Lampson, and really everyone who follows
+   Leslie Lampson / Tony Hoare, clarity of spec is paramount, even if it's silly / inefficient.
+   this is because there are more clients than implementers! more work is saved in the long run
+   if you try and make your spec sensible.
+
+   *objection*: isn't this kinda an arbitrary construction?
+   *answer*: well, yes. that's why you can also use...
+
+** abstraction relations: the common case, for math nerds
+   (*lampson*: harder if you have a programming background, but more mathy)
+
+   map each code state to *multiple spec states*
+
+   how is this related to the variable story
+
+   *jhg*: you can throw out the variables to get the abstraction relation
+   *lampson*: yes... but there's more:
+
+   *question*: why did the variable story work in the first place??
+   *answer*: we used it to establish *invariants* about the code state which we could then
+   use to prove correspondences in the square (note: of $F \times \pi$)
+
+
+
+** prophecy variables: the rare case
+   feel free to tune out.
+
+   let's look at *consensus*.
+
+   *spec*:
+   $\mathtt{var} \, \mathtt{outcome} := \mathtt{None}$
+   $\mathtt{allow}(v) = \mathtt{if} \; \mathtt{outcome} = \mathtt{None} \; \mathtt{then} \; (\mathtt{outcome} := v \;|\; \mathtt{skip})$
+   $\mathtt{result}() \to v = \mathtt{return} \: \mathtt{outcome} \;|\; \mathtt{return} \: \mathtt{None}$
+
+   *code*:
+   $\mathtt{var} \; \mathtt{allowed} : \mathtt{set}\, V := \mathtt{None}$
+   $\mathtt{allow}(v): \mathtt{allowed} \;+\!= \{v\}$
+   $\mathtt{agree}() = \mathtt{var} \; \sigma \in \mathtt{allowed} \cup \{\mathtt{none}\};$
+     $\mathtt{if} \; \mathtt{outcome} = \mathtt{None} \; \mathtt{then} \; \mathtt{outcome} := \sigma$
+   $\mathtt{result}() \to v = \mathtt{return}\; \mathtt{outcome} \; | \; \mathtt{return} \; \mathtt{none}$
+
+   the weird thing about this situation: $\mathtt{allow}(v)$ doesn't take effect until later!
+   this is very rare.
+
+   *lampson*: claim: external behavior from code is same as spec
+
+   could argue ad hoc, or can use prophecy variables
+
+   other canonical example: *message delivery*.
+   delivering messages over network.
+   state is a queue; can add to it, deliver from it.
+   when there's a crash, you drop things from the queue.
+
+   challenge: when crash occurs, behavior is determined by *later* behavior of system
+   (*jhg*: i.e. how soon new messages start coming in before the system comes up?)
+
+   *core idea*: add variables to guess what later behavior of system will be.
+
+   examined in handout.
+   *lampson*: nancy explains it better than I could.
+   good to know it works, method is complete... but still weird as hell.
+
+   (*jhg*: what does "complete" mean in this context, formally?)

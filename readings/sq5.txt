@@ -1,0 +1,2 @@
+# question about readings, lecture 5
+is the `Spec` / `APROC` system we're describing here different from the `proc` system we examined last lecture? is one a component of the other or are they entirely different formalisms?

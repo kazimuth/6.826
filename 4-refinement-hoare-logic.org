@@ -1,0 +1,164 @@
+#+TITLE: lecture 4: refinement and hoare logic
+#+AUTHOR: James Gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: September 17 2019
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* intro
+reasoning about program execution
+
+today: hoare logic, like we'll use in lab;
+good for sequential code, with no crashes.
+applies to individual programs.
+
+thursday's lecture: state machines;
+can represent concurrency, crashes, distributed systems; hard to use
+applies to whole systems.
+can use hoare logic as part of a larger state machine proof.
+
+basically two camps / a spectrum. will see that in different papers.
+
+* hoare logic
+have to have some kind of state, at the bottom.
+
+then, have a piece of code (proc) that will manipulate the state
+and give a new one.
+
+thinks of things with "pre" and "post" conditions.
+
+only works if precondition holds! (although maybe your precondition is True...)
+
+postcondition describes state where you end up.
+may also have the concept of a return value R, which postcondition could also describe.
+
+as a programmer, you don't view state directly, you just return things and run operations that mutate state.
+
+kinda blinkered view of the world: ignore intermediate states, because we ignore concurrency and crashes.
+
+why is this useful?
+- very easy to use. specs are hard to write and use, but hoare logic gives a very actionable spec; explains how to use proc.
+- very easy to build *compositional* proof, lets you break down proof into smaller things and then build back up.
+  do have to write proofs for sub-parts of proof though.
+
+** example procedure: StatDB
+
+keep history of values added to the database.
+
+#+BEGIN_SRC
+add(x):
+  total := total + x
+  count := count + 1
+avg():
+  return total / count
+#+END_SRC
+
+*** specs
+$\mathtt{add}(x):$
+  \(
+  \\
+  \mathtt{PRE}(s): \mathtt{True} \\
+  \mathtt{POST}(s',r): s'.\mathtt{total} = s.\mathtt{total} + x \land s'.\mathtt{count} = s.\mathtt{count} + 1 \land r = \mathtt{void}
+  \)
+
+$\mathtt{avg}():$
+  $\mathtt{PRE}(s): s.\mathtt{count} > 0$
+  $\mathtt{POST}(s', r): s' = s \land r = \frac{s.\mathtt{total}}{s.\mathtt{count}}$
+
+note: we restrict the spec here. it doesn't tell you what happens if you use the system wrong!
+
+$\mathtt{POST}(s', r): s' = s \land r = s.\mathtt{total} / s.\mathtt{count}$
+
+how do we prove these specs?
+
+*** hoare proof technique: sequencing
+
+can compose specs to look at what sequence of operations do to state
+postcondition -> precondition, and you're glued!
+
+break down operations into primitives!
+
+#+BEGIN_SRC
+add(x):
+   tmp := R(total)
+   W(total, tmp + x)
+   tmp := R(count)
+   W(count, tmp + 1)
+avg():
+  tmp1 = R(total)
+  tmp2 = R(count)
+  return tmp1 / tmp2
+#+END_SRC
+
+specs:
+
+$\mathtt{R}(\mathtt{total}):$
+  $\mathtt{POST}(s',r): s'=s \land r = s.\mathtt{total}$
+
+$\mathtt{W}(\mathtt{total}, v):$
+  $\mathtt{POST}(s',r): s'.\mathtt{count}=s.\mathtt{count} \land s'.\mathtt{total} = v$
+
+similar definitions for count
+
+can wire all these preconditions and postconditions together to get a proof in coq
+
+*** so what are preconditions good for?
+restricted specs: don't need to be true in all conditions
+maintain invariants: lets you carry around information, sorta like proof-by-induction
+
+* abstraction relations
+we want to write "better" / higher-level specifications.
+
+define higher-level state $h$: a list of integers, everything we've added.
+
+connect low-level states at the bottom, stuff closer to code.
+have high-level state at the top.
+define connection between those, the *abstraction relation*
+
+$\mathtt{AR}(h,s): |h| = s.\mathtt{count} \land \sum{h} = s.\mathtt{total}$
+
+this is nondeterministic! multiple high-level states map to same low-level
+state.
+
+also, some code states have no corresponding high-level state.
+   *jhgilles*: so those code states are always broken?
+
+it turns out to be very easy to retrofit these abstraction relations
+into our hoare logic system.
+
+$\mathtt{add}(x):$
+  \(\\
+  \mathtt{PRE}(s): \exists h, \mathtt{AR}(s, h) \\
+  \mathtt{POST}(s',r): \exists h', \mathtt{AR}(s', h') \land h' = x :: h
+  \)
+
+$\mathtt{avg}(x):$
+  $\mathtt{PRE}(h): \existsh, AR(s,h)$
+  $$\mathtt{POST}(h'): h' = h \land r = \frac{\sum h}{|h|}$$
+
+
+can think of this like [a nonsense diagram...]
+given: $s \longleftrightarrow h$, $s \longrightarrow s'$
+want: $h \Longrightarrow h'$, $s' \Longleftrightarrow h'$
+
+nice thing is you can stack these abstraction relations! all of this composes horizontally and vertically.
+
+you can also stick things *beneath* you. in lab setup, we define the *world* as the bottom layer: transistors, electrons, etc.
+turns out, you don't need to define the AR between the world and the variable layer!
+
+you just take that the world exists + there's an AR between it and
+
+** note: abstraction relation *doesn't matter* for correctness
+from a hoare logic perspective, you don't get to observe the state; only the return values of functions.
+
+someone using your code doesn't need to understand your abstraction relation at all; they only need to see the top-level spec!
+
+a very nice property in order to protect trusted computing base.
+if the spec captures a module's behavior
+
+*jhgilles*: the world is a lie!
+answer: well, it's true up to your threat model. if you assume the machine won't crash, then
+
+we assume haskell works for this to work, and we assume the machine works for this to work.
+
+we're only formalizing the middle part of the spec; haskell / transistors on the bottom, something besides coq (human reasoning??) on top
