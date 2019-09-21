@@ -181,15 +181,17 @@ Module Exercises (vars : VarsAPI).
     proc_spec (fun (_:unit) state => {|
                     pre := True;
                     post := fun r state' =>
-                      (* EXERCISE: replace with your postcondition *)
-                      state' = state;
+                             state' = mkState (S (StateX state)) (StateY state) (StateZ state);
                     recovered := fun _ _ => False;
                   |})
               incX
               vars.recover vars.abstr.
   Proof.
-    (* EXERCISE: Fill in your proof here. *)
-  Admitted.
+    unfold incX.
+    step_proc.
+    step_proc.
+    step_proc.
+  Qed.
 
   (** You have proven that the code of [incX] satisfies your specification
       in [incX_ok], but how do you know if your specification is good enough?
@@ -220,9 +222,8 @@ Module Exercises (vars : VarsAPI).
               incX
               vars.recover vars.abstr.
   Proof.
-    (* EXERCISE: Fill in your proof here. Most likely [step_proc.] will be
-    enough to prove the entire theorem, if your specification is correct. *)
-  Admitted.
+    step_proc.
+  Qed.
 
 
   (** * Swapping. *)
@@ -233,15 +234,28 @@ Module Exercises (vars : VarsAPI).
       prove that your code meets the spec. *)
 
   Definition swapXY : proc unit :=
-    (* EXERCISE: Fill in your code here. *)
+    x <- vars.read VarX;
+    y <- vars.read VarY;
+    _ <- vars.write VarX y;
+    _ <- vars.write VarY x;
     Ret tt.
 
   Theorem swapXY_ok :
-    (* EXERCISE: Fill in your spec here. *)
-    True.
+    proc_spec (fun (_:unit) state => {|
+                    pre := True;
+                    post := fun r state' =>
+                             state' = mkState (StateY state) (StateX state) (StateZ state);
+                    recovered := fun _ _ => False;
+                  |})
+              swapXY
+              vars.recover vars.abstr.
   Proof.
-    (* EXERCISE: Fill in your proof here. *)
-  Admitted.
+    step_proc.
+    step_proc.
+    step_proc.
+    step_proc.
+    step_proc.
+  Qed.
 
   (** As a sanity check, prove that [swapXY] from state (2, 3, 4)
       gives you state (3, 2, 4). *)
@@ -259,8 +273,8 @@ Module Exercises (vars : VarsAPI).
               vars.recover
               vars.abstr.
   Proof.
-    (* EXERCISE: Fill in your proof here. *)
-  Admitted.
+    step_proc.
+  Qed.
 
 
   (** * Part B: recursive procedures. *)
@@ -347,10 +361,11 @@ Module Exercises (vars : VarsAPI).
     induction l.
     - (* The base case: adding an empty list. *)
       simpl.
-
-      (* EXERCISE: Finish the proof. *)
-      admit.
-
+      step_proc.
+      simpl.
+      replace (StateX state + 0) with (StateX state).
+      + destruct state. reflexivity.
+      + lia.
     - (* The inductive case: adding one more element. *)
       simpl.
 
@@ -371,10 +386,12 @@ Module Exercises (vars : VarsAPI).
 
       (*  Finally, we have to prove the state matches the postcondition
           after running both [addX] and [addX_list l]. *)
+      step_proc.
 
-      (* EXERCISE: Finish the proof. *)
-      admit.
-  Admitted.
+      replace (a + StateX state + list_sum l) with (StateX state + (a + list_sum l)).
+      + reflexivity.
+      + lia.
+  Qed.
 
 
   (** * Recursive procedures on your own. *)
@@ -397,10 +414,66 @@ Module Exercises (vars : VarsAPI).
   Search Nat.even.
   Search Nat.odd.
 
-  (* EXERCISE: Fill in your code, spec, and proof here. *)
+  Fixpoint add_odds_evens (l : list nat) : proc unit :=
+    match l with
+      | nil =>
+        Ret tt
+      | v :: l' =>
+        match (Nat.even v) with
+          | true =>
+            x <- vars.read VarX;
+            _ <- vars.write VarX (x + v);
+            _ <- add_odds_evens l';
+            Ret tt
+          | false =>
+            y <- vars.read VarY;
+            _ <- vars.write VarY (y + v);
+            _ <- add_odds_evens l';
+            Ret tt
+        end
+    end.
 
-  Fixpoint add_odds_evens (l : list nat) : proc unit := Ret tt.
+  Fixpoint even_sum (l : list nat) : nat :=
+    match l with
+    | nil => 0
+    | v :: l' => match (Nat.even v) with
+               | true => (v + even_sum l')
+               | false => even_sum l'
+               end
+    end.
 
+  Fixpoint odd_sum (l : list nat) : nat :=
+    match l with
+    | nil => 0
+    | v :: l' => match (Nat.even v) with
+               | true => odd_sum l'
+               | false => (v + odd_sum l')
+               end
+    end.
+
+  Theorem add_odds_evens_ok : forall l,
+    proc_spec (fun (_:unit) state => {|
+                   pre := True;
+                   post := fun r state' =>
+                             state' = mkState (even_sum l + StateX state) (odd_sum l + StateY state) (StateZ state);
+                   recovered := fun _ _ => False;
+                   |})
+              (add_odds_evens l)
+              vars.recover
+              vars.abstr.
+  Proof.
+    induction l.
+    - simpl. step_proc. destruct state. reflexivity.
+    - simpl. destruct (Nat.even a) as [|].
+      + step_proc. step_proc. step_proc. step_proc.
+        replace (even_sum l + (StateX state + a)) with (a + even_sum l + StateX state).
+        { reflexivity. }
+        { lia. }
+      + step_proc. step_proc. step_proc. step_proc.
+        replace (odd_sum l + (StateY state + a)) with (a + odd_sum l + StateY state).
+        { reflexivity. }
+        { lia. }
+  Qed.
 
   (** To check your solution, prove this simple theorem about
       a particular execution of [add_odds_evens] using your spec.
@@ -408,6 +481,7 @@ Module Exercises (vars : VarsAPI).
       proven specification about [add_odds_evens]. *)
 
   Opaque add_odds_evens.
+  Hint Resolve add_odds_evens_ok : core.
 
   Theorem add_odds_evens_ok_seems_good :
     proc_spec (fun (_:unit) state => {|
@@ -419,7 +493,7 @@ Module Exercises (vars : VarsAPI).
               vars.recover
               vars.abstr.
   Proof.
-    (* EXERCISE: Prove this specification. *)
-  Admitted.
+    step_proc.
+  Qed.
 
 End Exercises.
