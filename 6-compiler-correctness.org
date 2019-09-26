@@ -1,0 +1,66 @@
+#+TITLE: 6.826 lecture 6: compiler correctness
+#+AUTHOR: James Gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: September 24 2019
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* intro
+
+  looking at: C + CompCert; a real-world example w/ industrial users
+an important building block in other programs, e.g. an OS written in verified C
+
+ why do they care so much about this? aren't compiler bugs hard to find? why do they care so much?
+
+ - high assurance: for applications in super-critical areas
+ - these bugs are hard to find otherwise
+
+* undefined behavior
+
+  spec writers are fuckers; because different architectures are weird
+
+  example: spec for `a = b / c` in c; what ASM does that translate to? x86 trap, ppc return 0
+
+  answer: "undefined behavior": code must behave correctly as long as behavior is defined
+
+  (zeldovich: i'm sure you'll write C code at some point in your lives, this is good breakfast cereal for you)
+
+  golang has undefined behavior if you race on a write to a slice; since pointer and len are stored inline, writes are non-atomic
+
+  UB is used for *optimization* (because compiler writers are fuckers)
+
+  e.g., in linux;
+
+  #+BEGIN_SRC c
+if (buf + off >= end) return; // oob
+if (buf + off < buf) return; // REALLY BIG oob, that wraps around
+  #+END_SRC
+
+  second ~if~ would get optimized out! because compiler assumes that ~buf + off~ is not undefined
+
+  thinking: *every c statement* can be thought of as an assertion by the developer that the code is not undefined!
+
+  (zeldovich: there's quite a difference of opinion here on what the c language should be. between compiler writers and e.g. linux kernel developers)
+
+* correct compilation
+  behavior: $P \Downarrow B$ ($P$ results in $B$; $P$ is a procedure? $B$ is a behavior) implies either
+  - termination (some execution trace, finishes)
+  - divergence (never finishes)
+  - undefined behavior ("wrong")
+
+  [can analyze the following case-by-case]
+
+  definition 1: $\forall B, (S \Downarrow B) \Longleftrightarrow (C \Downarrow B)}$; exact correspondence between behaviors
+  $S$ is spec [C code], $C$ is code [assembly code] (confusingly enough)
+  challenge of this definition: have to implement all possible nondeterminism in resulting output, since all code paths must correspond
+
+  definition 2: $S\; \mathtt{safe} \Rightarrow \forall B, (C \Downarrow B) \Rightarrow (S \Downarrow B)$
+  spec allows code to implement any safe thing? or.. hm
+  good for nondeterminism
+
+  definition 3: $\forall B \notin \mathtt{Wrong}, (S \Downarrow B) \Rightarrow (C \Downarrow B)$
+  applies for *deterministic* situations: one-way implication implies reverse by extra theorems
+
+  there's reasons 3 is good. u got less stuff to consider somehow
+
+  compiler is allowed to crash

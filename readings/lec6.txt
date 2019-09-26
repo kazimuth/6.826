@@ -1,0 +1,7 @@
+> Section 2 discusses different specifications that a compiler might have (definitions 1, 2, and 3). Think of an example of a program and its compilation that satisfies definition 3 but not 2, and an example of a program and its compilation that satisfies definition 2 but not 1.
+>
+> Are there properties that you might want from a compiler that are not captured by definition 2? 
+
+2 but not 1: a nondeterministic spec that is compiled to a deterministic code. 3 but not 2: a spec that exhibits "wrong" behavior in some cases, but compiles correctly without those cases.
+
+RE: desired properties, i mean, it depends on what you include in B. CompCert doesn't include some information leakage channels + timing information in there; but if you added those, it seems like it would be pretty bulletproof.

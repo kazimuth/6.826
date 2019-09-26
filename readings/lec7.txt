@@ -1,0 +1,3 @@
+> The paper describes a "verified VC generator". What are the code, specification, and proof for this verification effort? What components are trusted (assumed correct) in the VC generator?
+
+the TCB is a small embedding of x86 into F* (plus whatever F*'s TCB is). the spec is F*'s built-in verification condition generator. the code is `vc_gen`, which combines an assembly listing with a group of proofs about that assembly listing. this generates a simple set of verification conditions (pre/postconditions) for the underlying code. the proof, inspired by "proof by reflection", shows that these verification conditions are sufficient to uphold all the verification conditions F* would otherwise generate for the piece of code.

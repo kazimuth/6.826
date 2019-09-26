@@ -1,0 +1,103 @@
+#+TITLE: 6.826 lecture 6: vale: verifiable assembly
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: september 26 2019
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* intro
+  vale: why do we care about this
+
+  1. exposure to F*; very different from coq
+  2. hard problem: combine existing tools
+  3. extract key technical ideas
+
+* AES-GCM
+  key crypto component in HTTPS
+
+  HTTPS: HTTP layered over TLS layered over TCP
+
+  TLS has two components:
+  1. handshake
+  2. "record layer" (bulk data transfer): the part that uses AES-GCM. gives AEAD: secrecy/encryption + integrity
+
+  why is this important?
+
+  security-critical: if it doesn't work, security doesn't work
+
+  performance-critical: most bytes you send over the internet go through this
+  perf difference between doing this well and poorly is huge: verified C .27MBPS, unverified asm 6000MBPS
+  need "close" performance to get adoption; for that, need assembly
+
+  and that's why we care about verifying assembly code
+
+* F*
+  ml-like functional language, like F# / ocaml; also like gallina from Coq
+
+  a more "serious" language: compiler is written in F*, would be very hard in coq
+
+  has full dependent types (like coq): just a fancy typesystem
+
+  also has "refinement" types; where Z3 is integrated
+
+  what's a refinement types?
+  #+BEGIN_SRC F*
+  val add_pos : x : int {x > 0} ->
+                y : int {y > 0} ->
+                z : int {z > 0}
+  let add_pos = x + y
+  #+END_SRC
+
+  to check: uses dependent types, then asks Z3 if refinement types are true
+  by emitting a *verification condition*: is it true that $x > 0 \land y > 0 \Rightarrow x+y > 0$?
+  Z3 says "yes", through SMT madness
+
+  very powerful; don't have to prove things by hand like in coq
+
+  also, "effects": functions that run at specification time, "ghost code"
+  mark code with ~val add1 (x:int) : Ghost int~
+  anything marked ~Ghost~ isn't run
+
+  there's also Lemmas, ghost code w/ no return value, but interesting pre- and post-conditions; these are fed to Z3
+
+* verified VC generator
+  (İleri: i rewrote this in Coq; this is real!)
+
+  write some assembly embedded in F*:
+  #+BEGIN_SRC F*
+  Block [ Ins(Mov(Rbx, Rax));
+          ...                 ] : code
+  #+END_SRC
+
+  note: the *vale tool* lets you write code in (Low* + asm?)? then
+
+  have semantics for this code; a giant type-state for entire state of machine
+
+  eval_code: code -> state -> state
+     note: doesn't return Prop; deterministic; pretty easy to throw away enough stuff to make asm deterministic
+
+  to run code: print code to a .asm file, assemble w/ a standard assembler
+    TCB: pretty-printer
+
+  need to generate VCs for this
+
+  use standard technique, "weakest preconditions" (İleri: didn't invent this, just used it cleverly)
+
+  have postcondition $k$, per-instruction weakest precondition *generators* $WP$:
+  have:
+
+    $WP_{\mathtt{mov}}(WP_{\mathtt{add}}(k))(\sigma)$
+  mov
+    $WP_{\mathtt{add}}(k)(\sigma')$
+  add
+    $k(\sigma'')$
+
+  see: lecture notes
+
+  you can write functions in proof mode ???
+
+  paper makes a big deal about difference between naive vale and custom VC generation
+
+  TODO reread QRet / QBind to understand how that plumbing works
+
+  ...basically, this is a scalable way to compose preconditions (esp. w/ an SMT solver?)
