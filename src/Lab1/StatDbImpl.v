@@ -25,7 +25,12 @@ Module StatDB (v : VarsAPI) <: StatDbAPI.
 
   (** ** Exercise : complete the implementation of mean *)
   Definition mean : proc (option nat) :=
-    Ret None.
+    sum <- v.read VarSum;
+    count <- v.read VarCount;
+    match count with
+    | 0 => Ret None
+    | S n => Ret (Some (sum / S n))
+    end.
 
   Definition init' : proc InitResult :=
     _ <- v.write VarCount 0;
@@ -39,7 +44,7 @@ Module StatDB (v : VarsAPI) <: StatDbAPI.
 
   (** ** Exercise : complete the implementation of the abstraction function: *)
   Definition statdb_abstraction (vars_state : VariablesAPI.State) (statdb_state : StatDbAPI.State) : Prop :=
-    True.
+    (StateCount vars_state = length statdb_state) /\ (StateSum vars_state = fold_right plus 0 statdb_state).
 
   Definition abstr : Abstraction StatDbAPI.State :=
     abstraction_compose
@@ -56,21 +61,25 @@ Module StatDB (v : VarsAPI) <: StatDbAPI.
   Example abstr_2_ok : statdb_abstraction (VariablesAPI.mkState 2 3) [1; 2].
   Proof.
     unfold statdb_abstraction; simpl.
-  Admitted.
+    lia.
+  Qed.
 
   Example abstr_3_ok : statdb_abstraction (VariablesAPI.mkState 0 0) nil.
   Proof.
-  Admitted.
+    unfold statdb_abstraction. simpl. lia.
+  Qed.
 
   Example abstr_4_nok : ~ statdb_abstraction (VariablesAPI.mkState 1 0) [2].
   Proof.
     unfold statdb_abstraction; simpl.
-  Admitted.
+    lia.
+  Qed.
 
   Example abstr_5_nok : ~ statdb_abstraction (VariablesAPI.mkState 1 0) nil.
   Proof.
     unfold statdb_abstraction; simpl.
-  Admitted.
+    lia.
+  Qed.
 
   Theorem init_ok : init_abstraction init recover abstr inited.
   Proof.
@@ -92,7 +101,31 @@ Module StatDB (v : VarsAPI) <: StatDbAPI.
     intros.
 
     apply spec_abstraction_compose; simpl.
-  Admitted.
+    unfold statdb_abstraction.
+    step_proc.
+    { contradiction. }
+    step_proc.
+    { contradiction. }
+    step_proc.
+    { contradiction. }
+    step_proc.
+    { contradiction. }
+    step_proc.
+    {
+      exists (v :: state2).
+      simpl.
+      rewrite -> H0.
+      rewrite -> H1.
+      intuition.
+      {
+        lia.
+      }
+      {
+        lia.
+      }
+    }
+    contradiction.
+  Qed.
 
   Opaque Nat.div.
 
@@ -103,8 +136,55 @@ Module StatDB (v : VarsAPI) <: StatDbAPI.
     intros.
 
     apply spec_abstraction_compose; simpl.
+    unfold statdb_abstraction.
 
-  Admitted.
+    step_proc.
+    { contradiction. }
+    step_proc.
+    { contradiction. }
+    destruct r as [| n].
+    {
+      step_proc.
+      {
+        rewrite H0.
+        rewrite H1.
+        exists state2. simpl.
+        rewrite <- H3 in H0.
+        symmetry in H0.
+        rewrite -> length_zero_iff_nil in H0.
+        repeat rewrite H0. simpl. intuition.
+      }
+      {
+        contradiction.
+      }
+    }
+    {
+      step_proc.
+      {
+        rewrite H0.
+        rewrite H1.
+        exists state2.
+        intuition.
+        right.
+        split.
+        {
+          intuition.
+          assert (H' := H0).
+          rewrite <- H3 in H'.
+          discriminate.
+        }
+        {
+          rewrite H3.
+          rewrite H0.
+          reflexivity.
+        }
+      }
+      {
+        contradiction.
+      }
+    }
+
+  Qed.
 
 
   Theorem recover_wipe : rec_wipe recover abstr no_crash.

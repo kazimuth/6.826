@@ -52,6 +52,10 @@ can also use assert / cut.
 e_auto.
 apply.
 f_equal.
+discriminate. find absurd equalities in hypotheses to give contradiction.
+intuition. ??? magic
+right, left: break up or.
+split: break up and.
 
 Search "+" for facts about +.
 
