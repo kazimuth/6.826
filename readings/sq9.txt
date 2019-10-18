@@ -1,0 +1,1 @@
+if there's no universally-agreed-on spec, what does it mean for their new spec to be "correct"?

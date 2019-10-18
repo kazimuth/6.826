@@ -1,0 +1,1 @@
+How much of chess is portable to a non-unix machine? It seems like it relies on a lot of windows-specific hacks to work correctly.

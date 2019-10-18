@@ -1,0 +1,6 @@
+> To what extent does the x86-TSO memory model apply to application software running that uses kernel threads (if at all)? 
+
+It applies in pretty much the same way. Kernel threads are multiplexed onto hardware threads; so a given user thread may move around between hardware threads, and be paused for arbitrary periods of time. However, in terms of the spec, this is allowed. If two threads are suspended and executed serially, that just means that a particular sequence of reads and writes will be observed, which should still fulfill the spec.
+
+If they *are* actually scheduled onto separate hardware threads at the same time, then the memory model gets more of a workout, but it should still apply. The underlying architecture works pretty much the same in kernel space and user space. (I suppose it's possible that running in ring 0 could add some weirdness into the picture, e.g. with kernel context switches messing with buffers or something. That's not addressed in the paper though.)
+

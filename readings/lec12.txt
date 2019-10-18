@@ -1,0 +1,3 @@
+>  To find concurrency bugs, CHESS inserts preemptions (switches from one thread to another) in the execution of a multi-threaded program. How does CHESS decide where to insert a preemption? 
+
+It adds preemption points at calls to synchronization primitives and accesses to volatile variables that are known to participate in data races. Users can also whitelist particular known-thread-safe components in order to prevent them from being needlessly preempted.

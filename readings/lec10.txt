@@ -1,0 +1,3 @@
+> The authors say that Coverity's customers are often unhappy when Coverity improves their tool to find more bugs. Why? 
+
+Basically, customers think of coverity's errors as compiler errors; they expect the set of compiler errors for some piece of code to not change over time. Plus, companies which use "fixed bugs" metrics will (resonably enough) get upset when their bug count suddenly goes through the roof, at no fault of their own.

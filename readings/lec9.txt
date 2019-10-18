@@ -1,0 +1,3 @@
+> DFSCQ uses two allocators to prevent improper block reuse (as described in section 6.1). What problem would occur if DFSCQ used only one allocator? How would the problem manifest itself at the level of tree sequences, and what would prevent the proofs from going through? 
+
+it's basically a double-buffering strategy to ensure that log-bypass writes don't corrupt file system metadata. if they didn't do this, it would be possible to write to a block that has been deallocated, have the deallocation "rolled back", and overwrite information that was not allowed to change under the system spec.
