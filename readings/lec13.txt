@@ -1,0 +1,3 @@
+> What do you learn from the example of BufferImpl about the advantages of doing easy concurrency? 
+
+Using coarse-grained concurrency with locks lets us use large sections of our code for our atomic actions, which significantly reduces the complexity of proofs down the line (since there are far fewer possible interleavings we have to consider.)

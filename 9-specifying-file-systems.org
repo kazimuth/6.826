@@ -1,0 +1,339 @@
+#+TITLE: 6.826 lecture 9: specifying file systems / DFSCQ
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 02 november 2019
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+DFSCQ
+paper: https://6826.csail.mit.edu/2019/papers/dfscq:sosp2017.pdf
+Source code: https://github.com/mit-pdos/fscq
+
+(*jhg*: https://github.com/mit-pdos/fscq/blob/master/src/DiskLog.v )
+
+* intro: why this paper?
+  Example of systems verification
+  - File systems are critical infrastructure
+  - File systems have bugs
+  - File systems have tricky optimizations for performance
+
+  Reasoning about crashes
+  - Crashes show up in lab 3 and 4
+
+  Abstractions to capture crash non-determinism
+  - Asynchronous disk
+  - Deferred commit
+  - Log-bypass writes
+
+  File system proven in Coq
+  - Lot of class infrastructure was inspired by this paper / line of work
+
+  Revisit some big database ideas
+  - Logging (will show up in lab 3)
+
+* goal: crash safety
+  File system runs, power fails computer reboots
+
+  User can use file system again, as if crash didn't happen
+  - Storage devices power up correctly
+  - File system's internal data structures are correct
+  - User data is present (except recent files that haven't been saved yet)
+
+* risk: crash exposes subtle bugs
+  Append to a file requires three disk writes:
+  1. write data
+  2. write inode
+  3. write free block map
+
+  Crash might expose intermediate states, e.g., crash after 1 and 2 happened, but before 3
+
+  What to do in this case?
+  Is block free or not?
+
+  Changing the order doesn't help
+  3, 1, 2
+  What if crash after 3?
+
+* standard solution: logging
+
+  Clean, principled solution used by many file systems.
+  - Never update file system in place.
+  - First write to log, commit, apply log to file system.
+  - Recovery after crash: read log, apply to the file system.
+  - If crash before commit, then don't apply (empty log).
+
+  Not easy to implement (in particular if you want performance)
+  - e.g., bugs in ext4
+
+* verifying basic logging
+  What does correct mean?
+
+  How to model the disk?
+
+  How to model crashes?
+
+  How to model reboot?
+
+  How to prove correctness?
+
+  Without failures: Must prove core subset of POSIX correct
+  open, close, read, write, create, mkdir, etc.
+
+  Requires reasoning about directories, inodes, etc.
+
+  With failures
+
+* correctness of logging
+  Atomicity: all writes happen or none happen
+  Prevents incomplete updates (like the file append example above)
+
+  Durability: changes will persist after a crash
+  Simple logging provides immediate durability
+  Deferred commit provides durability later (on fsync in DFSCQ)
+
+* Asynchronous disks
+  Operations: read, write, sync
+  Labs have only synchronous read and write
+
+  Volatile buffer of pending writes inside the disk
+  write adds to buffer
+  read gets latest value from buffer or durable storage
+  sync flushes buffer to durable storage
+
+  Suppose we run the following code
+
+  #+BEGIN_SRC
+    .. address a has value 0
+    write(a, 10)
+    write(a, 20)
+    CRASH
+  #+END_SRC
+
+  What might be on disk after the computer reboots?
+
+  0, 10, 20
+
+  What will read return before crash?  20.
+
+  What will read return after crash?  One of 0, 10, 20.  Then stick with it.
+
+* Modeling asynchronous disk.
+  Each disk address has a list of block values, not just a single block value.
+
+  #+BEGIN_SRC
+    a=[0]
+    write(a, 10)
+    a=[0, 10]
+    write(a, 20)
+    a=[0, 10, 20]
+    read(a) returns latest item: 20
+    sync() trims the prefix of every block
+    a=[20]
+  #+END_SRC
+
+  What does crash do?
+
+  Each block gets some value from its list of block values
+
+* Reasoning about programs with crashes.
+
+  Idea: Add a crash condition to pre- and postcondition.
+
+  Example crash condition:
+
+  #+BEGIN_SRC
+    PRE: a=x
+      write(a, 10)
+    POST: a=x++[10]
+    CRASH: a=[y] where y \in x++[10]
+  #+END_SRC
+
+  Models atomic block write: common assumption in file systems.
+
+  Hoare logic equivalent for crashes.
+
+  How to prove a pre/post/crash spec for (a;b)?
+  - Crash condition of (a) implies crash condition of entire (a;b)
+  - Crash condition of (b) implies crash condition of entire (a;b)
+
+* Log abstraction.
+  Abstract state on top of the log: two logical disks.
+  - first logical disk represents the state that's committed.
+  - second logical disk represents the state that's not committed yet.
+
+  log_read and log_write operate on the second logical disk.
+
+  log_commit copies the second logical disk to the first.
+
+  recovery copies the first logical disk to the second.
+
+* Reboot and recovery.
+
+  What is post condition of recovery()?
+  state corresponds to the last commit
+
+  What is crash condition of recovery()?
+  intact log, first logical disk is the last commit
+
+  What is pre condition of recovery()?
+  intact log, first logical disk is the last commit
+
+  Recovery is idempotent
+  crash condition => pre condition
+  ok to crash during recovery and run recovery again
+
+* File system implementation.
+  Inodes, directories, block allocators, etc.
+
+  Built on top of the log abstraction. Everything stored in the log's logical disk.
+
+  Log provides atomicity + crash safety.
+
+  File system code provides abstraction between disk and FS tree.
+
+* Optimization: defer apply.
+  Don't apply the log to the file system every time.
+  Apply the log only when space in the log runs out.
+  No change to the spec!
+
+* Optimization 1: group commit (deferred durability).
+  Disk writes (log commit) is expensive.
+
+  Buffer commits in memory.
+
+  Write them out to the log periodically.
+
+  Changes spec: crash might expose an old state; wasn't possible before.
+
+** Modeling group commit.
+   Abstract state: list of committed (but not on-disk) logical disks,
+   plus the un-committed logical disk as before.
+
+   List of logical disks reflects the fact that commits will be applied in-order.
+   Can never observe commits out of order.
+
+   log_commit adds the un-committed logical disk to the list of committed ones.
+
+   recovery picks some logical disk from the list of committed logical disks.
+
+** What's the abstraction relation for group commit?
+   On-disk committed state corresponds to some logical disk in sequence.
+
+   Later logical disks in sequence correspond to in-memory commits that aren't on disk yet.
+
+   Earlier logical disks correspond to what used to be in-memory but got flushed.
+   No longer possible crash states, but higher level doesn't know it yet.
+   Non-deterministic flush to disk in the background.
+
+** File system on top of group commit.
+   Mostly transparent to the FS code.
+   Each logical disk still corresponds to a tree.
+   New syscall: fsync, forces commits from memory to disk.
+   In spec terms, truncates history of committed logical disks.
+
+* Optimization 2: log-bypass writes.
+  Logging incurs a 2x throughput overhead for writes.
+  Data first written to the log.
+  Then written to its place on disk when log is applied.
+  File systems often send file writes directly to file data blocks.
+  Bypass log, no atomicity guarantees.
+  Still use log for file system structures (inodes, free lists) for consistency.
+  No atomicity for file writes, but FS didn't provide multiple file writes anyway.
+  Can lead to surprising crash behavior:
+  rename(f1, f2)
+  write(f2, x)
+  after crash, still f1 but contains x!
+  Need a revised spec.
+
+** What does a log-bypass write look like for our log abstraction?
+   Bypass writes go to every logical disk, not just the last uncommitted one.
+   Blue block write in figure 5 in the paper.
+   Reflect the fact that bypass write gets re-ordered with respect to in-memory commits.
+
+** How does the bypass write affect the tree?
+   Unclear: could be bad!
+   The bypass write could be going to a recently-allocated file block.
+   What was that block used for before being allocated?
+   Could have been another file that was removed.
+   That file's removal could still be sitting in the in-memory log.
+   Bypass write can corrupt another file if bypass write goes to disk before deletion.
+   This could happen if DFSCQ used just one allocator (reading question).
+   DFSCQ's trick is to use two allocators: one for freeing, one for allocating.
+   Guarantees that allocated blocks weren't recently freed.
+   Flip allocators when flushing in-memory log to disk.
+   How to formalize bypass writes for trees?
+
+** Formalizing bypass writes part 1: bypass safety.
+   Helps prove correctness of bypass writes.
+   If block belongs to some file in latest tree, then in a previous tree:
+   either belongs to same file and same offset, or is unused.
+   Writes to one file in latest tree cannot affect another file/offset.
+   If the block is not in the same file, it's on the free list
+   Bypass write to this free block doesn't affect abstract tree.
+
+** Formalizing bypass writes part 2: abstraction.
+   Each logical disk has a logical tree (not corrupted thanks to bypass safety).
+   Bypass writes update same inode/offset in every past tree (not just latest).
+
+* Optimization 3: write-back caching for file data.
+  Don't write file blocks to disk right away.
+  Buffer pending file writes in memory first.
+  New syscall: fdatasync to flush pending file data writes to disk.
+  Can use the block-set trick to represent pending writes.
+  File blocks are block-sets instead of just single block values.
+  Writes update the block-set; fdatasync truncates all but the latest value.
+
+** Block stability relation.
+   Helps reason about fdatasync
+   Shrink-regrow problem
+   Block stability is a per-file property
+   Unlike bypass safety, it is not required to hold of every file
+   If block belongs to some file in latest tree, then in a previous tree:
+   if file exists and is large enough, block belongs to same file/offset
+   Shrinking a file gives up block stability
+   fdatasync's postcondition depends on block stability
+   Can call fdatasync after shrink, but would not learn anything from postcond
+   How to regain block stability?
+   fsync, to flush metadata (and reset tree sequence to one tree)
+
+** How can we tell if this is a good spec?
+   Seems to allow implementing various optimizations.
+   End result: DFSCQ performance comparable to ext4 (without CPU concurrency).
+   Seems to be sufficient for proving atomic_cp on top of it.
+
+* Optimization 4: checksum logging.
+  Avoid disk sync between writing log contents + log header.
+  Challenge: how to formalize the intuition that hashes don't collide?
+  Naive axiom: forall b1 b2, hash b1 = hash b2 -> b1 = b2.
+  Not actually true.
+  Hard to find counter-example for cryptographic hash function (e.g., SHA256).
+  But we can prove in Coq this must be false, even if we don't have a counter-example.
+  Pigeon-hole principle: more blocks than distinct hashes.
+  Assuming this axiom means assuming false, which undermines every proof.
+  Clever trick: model hash collision as an infinite loop.
+  Treat hashing as a primitive procedure, like disk read or write.
+  Implemented externally to our model, we will just state an axiom about it.
+  Hoare logic spec: postcondition says resulting hash is unique for all blocks ever hashed.
+  Abstract state keeps track of every block ever hashed.
+  If there's a block with colliding hash, this implies hash won't return.
+  Infinite loop on hash collision.
+  How to realize this funny hash function in practice?
+  Just use a cryptographic hash like SHA-256.
+  Negligible probability that FS code will trigger a colliding case (not proven in Coq).
+  OK to use SHA-256 as an implementation of the hash primitive.
+
+* More optimizations that don't affect the spec:
+  List of dirty blocks for each file (inode)
+  Caches: directory caches, allocator caches, inode cache
+  Bitmap accesses using 64-bit words
+
+* Could the file system get even higher performance?
+  Concurrency (multi-core CPUs, concurrent I/O to disk).
+  Still an open research question.
+  Concurrency requires a spec that describes concurrent syscalls.
+  But perhaps the core still stays the same as DFSCQ.
+  Avoid Haskell overheads (doesn't change the spec).
+  Avoid flushing all metadata: just flush changes for specific file/directory.
+  Changes the spec again: not flushing a prefix.
+  Some sophisticated file systems do this (e.g., btrfs).
+  But ext4 seems to be good enough for many applications without it.

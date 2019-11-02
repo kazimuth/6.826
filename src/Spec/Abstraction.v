@@ -172,6 +172,10 @@ Record SpecProps T R State :=
   to refer to the starting state (and the ghost variable).
  *)
 
+(* "Specification A T R State" can be read "A specification with ghost variables A, return type T, recovery type R, and state State".
+ It has members pre: Prop, post: T -> State -> Prop, recovered: R -> State -> Prop. It is constructed with a set of ghost variables and a
+ starting state.*)
+
 Definition Specification A T R State := A -> State -> SpecProps T R State.
 
 

@@ -1,0 +1,1 @@
+Can we do the proofs using these APROCs directly in Coq or do we need to translate them somehow?

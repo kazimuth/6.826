@@ -1,0 +1,1 @@
+How coq works: Coq'Art, https://www.labri.fr/perso/casteran/CoqArt/

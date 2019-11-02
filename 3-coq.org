@@ -43,6 +43,7 @@ reflexivity. simplify somewhat + reduce equality to boolean
 destruct: case analysis. (Use to "undo" a `match`.)
 simpl. simplify
 lia. simplify *HARDER*. (for linear integer systems.)
+  can also show arithmetic contradictions in assumptions.
 rewrite (vs rewrite <-?)
 induction. introduces induction hypothesis IHm
 to prove specific goal: `2: {...}`
@@ -54,14 +55,29 @@ apply.
 f_equal.
 discriminate. find absurd equalities in hypotheses to give contradiction.
 intuition. ??? magic
+   can break down implications.
+   can add/strip constructors on either side of an equality.
 right, left: break up or.
 split: break up and.
+unfold z. rewrite w/ z's definition.
+pose proof (h h2) as h3. introduces h3 : B as a new hypothesis.
+specialize (h h2). modifies h : A -> B into h : B.
+   this can be useful if you won't need h later.
+apply h in h2. converts h2 : A into h2 : B.
+intros [=]. strip constructors on either side of an =.
+case (lt_dec a b); intros. analysis by cases of <, >=. (other _decs can be used too).
+
+step_proc. step a POCS procedure. always worth trying :)
 
 Search "+" for facts about +.
 
 there's stuff about "stronger than omega" and "only reducing the head"
 
 can turn off notation (TODO: figure how that is doable in spacemacs)
+
+* theorems
+
+* tips
 
 tips:
 - break out lemmas for readability.

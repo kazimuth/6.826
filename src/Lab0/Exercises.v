@@ -13,7 +13,7 @@ Module Exercises (vars : VarsAPI).
       You can examine the functions provided by the [vars]
       module using the [Check] command, as follows: *)
 
-  Check vars.read.
+  (* Check vars.read. *)
 
   (** The above [Check] command should have printed:
 
@@ -27,7 +27,7 @@ Module Exercises (vars : VarsAPI).
       a [nat] value.
     *)
 
-  Check vars.write.
+  (* Check vars.write. *)
 
   (** [vars.write] similarly takes a variable name and a new value
       and gives us a procedure with no return value.
@@ -411,8 +411,6 @@ Module Exercises (vars : VarsAPI).
       these, as follows:
     *)
 
-  Search Nat.even.
-  Search Nat.odd.
 
   Fixpoint add_odds_evens (l : list nat) : proc unit :=
     match l with

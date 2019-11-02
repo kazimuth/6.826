@@ -1,0 +1,1 @@
+Are commutes defined between pairs of operations, pairs of (operation, process), or something else? how do we choose what to consider when specifying commutation?

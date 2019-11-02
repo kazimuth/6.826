@@ -1,0 +1,190 @@
+#+TITLE: 6.826 lecture 13: specifying concurrency
+#+AUTHOR: james gilles
+#+EMAIL: jhgilles@mit.edu
+#+DATE: 22 october 2019
+#+OPTIONS: tex:t latex:t
+#+STARTUP: latexpreview
+
+* hoare triples in concurrent systems
+** standard hoare triples
+   we have $A;B$, that is, operation B happens after operation A.
+
+   $\frac{\{P\} A \{R\} \; \{R\}B\{Q\}}{\{P\} A;B \{R\}}$
+
+   or:
+
+   $\exists s_i | A(s, s_i) \land B(s_i, s')$
+
+** concurrent hoare triples
+   can have multiple thing happening at the same time -- then, they get interleaved.
+
+   (*jhg*: can "multiple things happening at the same time" ever result in executions that don't look like some interleaving?)
+
+   have to handle all possible interleavings.
+
+   if our sequence of operations has *atomicity* (is *atomic*; also *linearizeable*, *serializeable*)
+   then we can *rearrange* interleavings!
+
+   ...
+    $A;B \; C$
+    (note: actual notation is double brangles)
+    $\langle A;B\rangle \; C$
+    $C \; \langle A;B\rangle$
+   ...
+
+   if we show that these are equivalent:
+
+   $A;C;B \equiv C; \langle A;B\rangle \equiv \langle A;B\rangle C$ (note: we can say "$C$ is a mover")
+
+   then we have that $\langle A;B\rangle$ is atomic, because it can be moved after / before $C$ without changing semantics.
+
+   (*jhg*: if $C$ is a mover, what does it commute with? confused about what "commute" means here.)
+** really easy: disjointness
+   the property that gives you (atomicity?...)
+
+   we want disjoint variables, except read-only
+
+   in distributed systems, this is called "sharding"
+
+** easy: locking
+   make sure that all the operations of your critical section commute with the big atomic action
+
+   we want:
+   $A ; C ; B \equiv $C- ; A ; B$
+
+   $l_A;A$
+   $l_C;C$
+   $l_A;A;B;l_a;l_C;C$
+
+   ground rule: non-commuting ops imply conflicting locks
+
+*** other commuting operations
+   atomic increment commutes! with atomic increment only, of course. but you don't need a lock.
+
+   similar for some other atomic operations.
+
+** hard: nonblocking
+   your choices:
+   - do a very careful proof of system correctness.
+   - have bugs.
+
+   many systems can tolerate bugs, if they're fault-tolerant. but if you don't prove it correct, it's gonna have bugs.
+
+* what does this look like?
+** simple
+   we've got lots of actions, $A$, $B$, $C$
+
+   the program is the "or" of all these actions
+
+   $A [] B [] C$
+
+   either $A$, $B$, or $C$ can happen
+
+   if we have a program with two threads $h_1 = H1.1;H1.2;H1.3,\; h_2=H2.1;H2.2;H2.3$
+
+   that program is then:
+
+   $H1.1[]H1.2[]H1.3[]H2.1[]H2.2[]H2.3$
+
+   wait, aren't these supposed to be ordered?
+
+   sure; we add state "program counters": $h_1.PC,\; h_2.PC$
+
+   and now we write the program as:
+
+   $h_1.PC=\alpha\land H1.1\land h_1.PC:=\beta \quad [] \quad h_1.PC=\beta\land H1.2\land h_1.PC:=\gamma \quad [] \quad ...\;$
+
+   now, this isn't
+
+   people fought against this for a long time! people also fought against considering a big system as a linearizeable thing.
+   but because disjoint operations in different parts of the big system commute, this works.
+
+   you might say this is ugly, but: *lampson*: concurrent recursive are a pigsty! we're just exposing that fact.
+
+   (question: is this composable? yes! in the labs we see this happening with respect to failures.)
+
+   note: we only have to consider interleavings that still fulfill all preconditions! that's why all of this works.
+
+
+   so, this is pretty much everything you'll get when you completely hide concurrency.
+
+** side note: eventual consistency
+   you can also not do that: eventually consistent system have lots of things that commute, and, well, they'll get to it eventually. e.g. Amazon, lots of web stuff.
+
+   the price: you might end up with inconsistent state; which would be disconcerting, when you're shopping. (*lampson*: but lots of disconcerting things happen on Amazon.)
+   e.g. your shopping list doesn't actually get something added even if you click on it.
+   but (*lampson*: loosely...) that might happen shopping IRL; you check off the wrong thing on your list,
+   users tolerate eventual consistency because they don't have a super rigid model of the system in their heads.
+
+   high level lesson: build systems that fulfill actual user needs!
+
+** examining programs
+   typical high level language: ;, if, then, else, do, procedures, expressions.
+
+   but! these don't map cleanly to atomic actions.
+
+   e.g. "x = x + y" - this is several instructions on the level of the machine.
+
+   and with microcode, even those might be broken down!
+
+   so you have to look at your execution engine, not just your high-level source, to understand the concurrency properties of your program.
+
+   we have to put labels everywhere the program counter could possible land; which means breaking up things into their actual atomicity of execution.
+
+   note: operations on thread-locals / temporaries are atomic, because they're disjoint by construction. (*jhg*: unless you can take references...)
+
+* core case: the locking story
+  locking the prototypical thing; lets you do stuff without worrying about concurrency.
+
+** 3 aspects
+*** conflicts
+    non-commuting
+
+    problem: locking more than you need to
+    in early multithreaded OS development, people put a global lock over entire kernel.
+
+    works... but it's super overkill.
+
+    systems have evolved over time. (*lampson*: typically by adding lots of fine-grained locks, find out out you were overzealous and there are races, pull back, repeat...)
+
+*** mechanics of a lock
+    what do you have to do to at the machine-instruction level to actually take the lock?
+
+*** lock invariants
+    important to figure out how big your critical sections need to be!
+
+    (... if outside users don't see effect of your locks... they're not working...)
+
+    canonical example of concurrency is banking systems, have to carefully consider what can be atomic.
+
+    (*jhg*: could you build a system to automatically reorder taking multiple locks?)
+
+    note: actual banking systems are actually mixed. when first built, they had online systems to keep track of current balance throughout the day,
+    theoretically without doing anything wrong; but didn't trust them. so, they'd throw out that online system's balance at the end of the day,
+    and run all the logged actions through their 20-year-old batch systems overnight, because they knew they were trustworthy.
+
+** mechanics in detail: mutex
+   mutex $m$ has two operations, acquire $\mathtt{acq}$ and release $\mathtt{rel}$.
+
+   $\mathtt{acq}$: taken = false; do while not taken $\langle$ if m = free then m := held, taken = True $\rangle$ end; self
+
+   $\mathtt{rel}$: m := free
+
+   this is called a spin lock. it's bad on a uniprocessor: will just eat up CPU while waiting for other process to release lock, which might take a while.
+   on a multiprocessor, it's fine... unless you have a lot of contention. with 20 processors, 19 waiting on some lock, then 18 waiting, ...
+
+   what actual processors do is have some sort of backoff, e.g. exponential, and eventually suspend the thread through the OS.
+
+** how do we prove that this actually works for making things atomic?
+
+   2 threads, 4 cases:
+
+   $m.\mathtt{acq}(h) \; ;\; ... \; ;\; m.\mathtt{acq}(h')$ : impossible!
+
+   $m.\mathtt{acq}(h) \; ;\; ... \; ;\; m.\mathtt{rel}(h')$ : impossible! you shouldn't release a mutex that you don't hold (we didn't explicitly impose that precondition, exercise for the reader...)
+
+   $m.\mathtt{rel}(h) \; ;\; ... \; ;\; m.\mathtt{acq}(h')$ : all good!
+
+   $m.\mathtt{rel}(h) \; ;\; ... \; ;\; m.\mathtt{rel}(h')$ : impossible!
+
+   since only case 2 works, we know that mutex implements the lock spec.

@@ -1,6 +1,5 @@
 Require Import POCS.
 
-
 (** * Logging API *)
 
 (** This file defines the desired API for an append-only durable log.

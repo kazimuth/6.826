@@ -1,0 +1,6 @@
+> The CSPEC paper argues that Release for a lock can be thought of as a left-mover because the Release can be moved left in an execution trace. But moving a Release left would seemingly affect what is legal afterwards: namely, if Release is moved left, then another thread can now Acquire the lock sooner than it would have otherwise been able to. What does it mean for Release to be a left-mover then? 
+
+The mover formal definition of a left-mover doesn't consider newly-legal operations after a commute. it simply states that, for any execution trace where a Release appears after some other operation, that Release can legally be moved before it. So, yes the thread *could* acquire the lock sooner, but (for any particular trace) we don't consider that case.
+
+(since we (formally) consider all possible interleavings anyway, that release might show up in some other trace, though?)
+
