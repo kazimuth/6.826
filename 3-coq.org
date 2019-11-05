@@ -66,6 +66,7 @@ specialize (h h2). modifies h : A -> B into h : B.
 apply h in h2. converts h2 : A into h2 : B.
 intros [=]. strip constructors on either side of an =.
 case (lt_dec a b); intros. analysis by cases of <, >=. (other _decs can be used too).
+congruence: overheard, owo
 
 step_proc. step a POCS procedure. always worth trying :)
 

@@ -197,6 +197,34 @@ Module Log (d : OneDiskAPI) <: LogAPI.
     | None => 0
     end.
 
+  Theorem diskGetLogLength_zero :
+    forall disk,
+    diskSize disk = 0 -> diskGetLogLength disk = 0.
+  Proof.
+    intros.
+    unfold diskGetLogLength.
+    rewrite -> H.
+    assert (0 - 1 = 0) by lia.
+    rewrite -> H0.
+    rewrite -> disk_oob_eq by lia.
+    trivial.
+  Qed.
+
+  Theorem diskGetLogLength_upd :
+    forall disk len,
+      let size := diskSize disk in
+    not(size = 0) -> diskGetLogLength (diskUpd disk (size-1) len) = block_to_addr len.
+  Proof.
+    intros.
+    unfold diskGetLogLength.
+    rewrite -> diskUpd_size.
+    unfold size.
+    rewrite -> diskUpd_eq by lia.
+    trivial.
+  Qed.
+
+  (* checking that the list gets appended to in the order i think
+     it does... *)
   Example list_order : nth_error ([1; 2; 3]) 0 = Some 1.
   Proof.
     intuition.
@@ -212,7 +240,7 @@ Module Log (d : OneDiskAPI) <: LogAPI.
       let nonsense := 0 in
       forall
         (* maximum log length is (disk size - 1) *)
-        (Hlength_inbounds : length log_state < length disk_state)
+        (Hlength_inbounds : not(diskSize disk_state = 0) -> length log_state < diskSize disk_state)
         (* last entry on disk is the same as log length (or log length is 0) *)
         (Hlength_on_disk : length log_state = diskGetLogLength disk_state)
         (* for all nats i below log length, the block at i on the disk corresponds to the block at i in the log. *)
@@ -252,8 +280,24 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
 
 
   (* Recovery is a noop. *)
-  Definition recover : proc unit := Ret tt.
-  Axiom recover_wipe : rec_wipe recover abstr no_wipe.
+  Definition recover : proc unit := d.recover.
+  (* This proof proves that recovery corresponds to no_wipe. *)
+  Theorem recover_wipe : rec_wipe recover abstr no_wipe.
+  Proof.
+    unfold rec_wipe.
+    intros.
+
+    apply spec_abstraction_compose; simpl.
+    step_proc; eauto.
+  Qed.
+
+  (* Due to how remapped_abstraction is defined (as an inductive), it cannot be
+  unfolded. This tactic identifies abstraction relations in the hypotheses and
+  breaks them apart with [inversion], and also does some cleanup. *)
+  Ltac invert_abstraction :=
+    match goal with
+    | H : log_abstraction _ _ |- _ => inversion H; clear H; subst; subst_var
+    end.
 
 
   (* Helper: get log length from disk. *)
@@ -264,17 +308,69 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
       Ret (block_to_addr len)
     else
       Ret 0.
+
+  (* question: how would we prove this w.r.t. disk state? *)
   Definition log_length_spec : Specification unit nat unit OneDiskAPI.State :=
+    fun (_ : unit) disk_state => {|
+        pre := True;
+        post := fun len disk_state' =>
+                 disk_state' = disk_state /\
+                 diskGetLogLength disk_state = len;
+        recovered := fun _ disk_state' =>
+                      disk_state' = disk_state
+      |}.
+  Theorem log_length_ok : proc_spec log_length_spec log_length recover d.abstr. (* note: we use d.abstr to only prove w.r.t. the disk, not the
+    log. *)
+    unfold log_length. intros.
+    step_proc.
+    destruct (gt_dec r 0).
+    {
+      (* len > 0 *)
+      step_proc.
+      step_proc.
+      unfold diskGetLogLength.
+      destruct (diskGet state (diskSize state - 1)) eqn:Heq.
+      2: {
+        (* can't be none if r > 0 *)
+        apply disk_inbounds_not_none in Heq.
+        2: lia.
+        contradiction.
+      }
+      assert (b = r) by intuition.
+      intuition.
+    }
+    {
+      (* len = 0 *)
+      step_proc.
+      apply diskGetLogLength_zero.
+      lia.
+    }
+  Qed.
+
+  Hint Resolve log_length_ok : core.
+
+
+  (* question: how would we prove this w.r.t. disk state? *)
+  Definition log_length_hl_spec : Specification unit nat unit LogAPI.State :=
     fun (_ : unit) state => {|
         pre := True;
         post := fun r state' =>
                  state' = state /\
-                 diskGetLogLength state = r;
+                 length state = r;
         recovered := fun _ state' =>
                       state' = state
       |}.
-  Axiom length_ok : proc_spec log_length_spec log_length recover abstr.
-
+  Theorem log_length_hl_ok : proc_spec log_length_hl_spec log_length recover abstr.
+  Proof.
+    apply spec_abstraction_compose; simpl.
+    step_proc.
+    {
+      exists state2. intuition.
+      invert_abstraction.
+      assumption.
+    }
+    exists state2. intuition.
+  Qed.
 
   (* we don't prove anything about set_log_length; just handle it in proofs. *)
   Definition set_log_length (n : nat): proc unit :=
@@ -285,27 +381,232 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
 
 
   (* to initialize, just set length to 0. *)
-  Definition init : proc InitResult :=
+  Definition init' : proc InitResult :=
     _ <- set_log_length 0;
     Ret Initialized.
-  Axiom init_ok : init_abstraction init recover abstr inited_any.
+  Definition init := then_init d.init init'.
+  Theorem init_ok : init_abstraction init recover abstr inited_any.
+  Proof.
+    eapply then_init_compose; eauto.
+    unfold init'. unfold set_log_length.
+    step_proc.
+    step_proc.
+    step_proc.
+    step_proc.
+    exists nil. intuition.
+    constructor.
+    {
+      (* the length is in bounds. *)
+      simpl.
+      rewrite -> diskUpd_size.
+      lia.
+    }
+    {
+      (* either the disk is size 0, or the log length is set.
+       diskGetLogLength is correct in both cases. *)
+      simpl.
+      destruct (diskSize state == 0).
+      {
+        rewrite -> diskGetLogLength_zero.
+        2: {
+          rewrite -> diskUpd_size. assumption.
+        }
+        trivial.
+      }
+      {
+        rewrite diskGetLogLength_upd by assumption.
+        rewrite H1.
+        trivial.
+      }
+    }
+    {
+      (* log entries are correct: vacuously true for []. *)
+      intros.
+      simpl in H0.
+      assert (i < 0 -> False).
+      {
+        lia.
+      }
+      contradiction.
+    }
+  Qed.
+
+  (*
+  (* like set (a:=b) except introduces a name and hypothesis *)
+  Tactic Notation
+         "provide_name" ident(n) "=" constr(v)
+         "as" simple_intropattern(H) :=
+    assert (exists n, n = v) as [n H] by (exists v; reflexivity).
+
+  Tactic Notation
+         "induction_eqn" ident(n) "as" simple_intropattern(HNS)
+         "eqn:" ident(Hn) :=
+    let PROP := fresh in (
+      pattern n;
+      match goal with [ |- ?FP _ ] => set ( PROP := FP ) end;
+      induction n as HNS;
+      match goal with [ |- PROP ?nnn ] => provide_name n = nnn as Hn end;
+      unfold PROP in *; clear PROP
+    ).
+*)
+
+  Theorem eq_if_maybe_holds_is_some : forall T (p:T -> Prop) mt t,
+      maybe_holds p mt ->
+      mt = Some t ->
+      p t.
+  Proof.
+    intros.
+    unfold maybe_holds in H.
+    rewrite H0 in H.
+    assumption.
+  Qed.
+
+  Theorem eq_if_maybe_eq_is_some : forall T (mt : option T) t v,
+      maybe_eq mt t ->
+      mt = Some v ->
+      Some t = Some v.
+  Proof.
+    intros.
+    unfold maybe_eq in H.
+    unfold maybe_holds in H.
+    rewrite H0 in H.
+    intuition.
+  Qed.
+
+  Definition extract T (start : nat) (len : nat) (l : list T) :=
+    firstn len (skipn (start - len) l).
 
 
   (* helper for `get`. note: addr goes up as remaining goes down *)
-  Fixpoint get_rec (addr : nat) (remaining : nat) : proc (list block) :=
+  Fixpoint get_rec (len : nat) (remaining : nat) : proc (list block) :=
     match remaining with
     | 0 =>
       Ret nil
     | S remaining_ =>
-      b <- d.read addr;
-        rest <- get_rec (S addr) remaining_;
+      b <- d.read (len - (S remaining_));
+        rest <- get_rec len remaining_;
         Ret (b :: rest)
     end.
+  Theorem get_rec_ok : forall (len:nat) (remaining:nat),
+      proc_spec (fun (_ : unit) disk_state => {|
+        pre := len <= diskSize disk_state /\ remaining <= len;
+        post := fun blocks disk_state' =>
+                 disk_state' = disk_state /\
+                 (* diskGets returns a list of options >:( *)
+                 map Some blocks = diskGets disk_state (len-remaining) (remaining)
+                 ;
+        recovered := fun _ disk_state' =>
+                      disk_state' = disk_state
+      |}) (get_rec len remaining) recover d.abstr.
+  Proof.
+    intros.
+    induction remaining as [|remaining'].
+    {
+      unfold get_rec.
+      step_proc.
+    }
+    {
+      step_proc.
+      step_proc.
+      {
+        lia.
+      }
+      step_proc.
+      clear Lexec. clear Lexec0.
+      rewrite H3.
+
+      (* prove that reads can't go out of bounds. *)
+      assert (diskGet state (len - S remaining') = Some r).
+      {
+        destruct (diskGet state (len - S remaining')) eqn:Heq.
+        {
+          unfold maybe_eq in H2.
+          unfold maybe_holds in H2.
+          intuition.
+        }
+        {
+          apply disk_inbounds_not_none in Heq.
+          2: {
+            apply disk_none_oob in Heq.
+            lia.
+          }
+          contradiction.
+        }
+      }
+
+      rewrite H1.
+      assert (len - S remaining' + 1 = len - remaining').
+      {
+        lia.
+      }
+      rewrite H4.
+      trivial.
+    }
+  Qed.
+
+  Hint Resolve get_rec_ok : core.
+
   Definition get : proc (list block) :=
     len <- log_length;
-    r <- get_rec 0 len;
+    r <- get_rec len len;
     Ret r.
-  Axiom get_ok : proc_spec get_spec get recover abstr.
+  Theorem get_ok : proc_spec get_spec get recover abstr.
+  Proof.
+    apply spec_abstraction_compose; simpl.
+
+    unfold get.
+    step_proc.
+    { exists state2. intuition. }
+    step_proc.
+    {
+      invert_abstraction.
+      rewrite Hlength_on_disk in Hlength_inbounds.
+      destruct (diskSize state) eqn:Heq.
+      {
+        rewrite diskGetLogLength_zero by assumption.
+        lia.
+      }
+      {
+        lia.
+      }
+    }
+    {
+      exists state2. intuition.
+    }
+    step_proc.
+    {
+      exists state2. intuition.
+      invert_abstraction.
+      Search diskGets.
+    }
+
+    step_proc_basic.
+    intros.
+    exists tt.
+    intuition.
+
+    step_proc.
+    {
+      admit.
+    }
+    {
+      admit.
+    }
+    {
+      exists state2. intuition.
+    }
+    step_proc.
+    {
+      exists state2. intuition.
+    }
+    unfold get_rec.
+    intro.
+    intros.
+    induction remaining.
+    step_proc.
+    step_proc.
+
+    step_proc_basic.
 
 
   (* helper for `get`. note: addr goes up as bs shrinks *)

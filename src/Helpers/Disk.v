@@ -247,6 +247,7 @@ Qed.
 
 Hint Resolve maybe_eq_None_holds : core.
 
+(* spooky but helpful. *)
 Theorem disk_ext_eq : forall d d',
     (forall a, diskGet d a = diskGet d' a) ->
     d = d'.

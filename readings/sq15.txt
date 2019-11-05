@@ -1,0 +1,1 @@
+Has anyone since this paper tried the "smt solvers for for crash safety and concurrency" suggestion? that sounds neat.

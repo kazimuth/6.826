@@ -1,0 +1,3 @@
+>  What part of the replicated disk's proof would be impossible to complete in Perennial if it did not have support for recovery helping? 
+
+The system wouldn't be able to justify re-running partially-completed operations after a crash, e.g. replicating writes to one disk to the other. 
