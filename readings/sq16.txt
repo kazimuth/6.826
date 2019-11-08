@@ -1,0 +1,1 @@
+Do you ever need to worry about damaged packets, e.g. by a bad network link or an adversary, or is that handled at different parts of the stack?

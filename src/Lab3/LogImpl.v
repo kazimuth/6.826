@@ -232,7 +232,6 @@ Module Log (d : OneDiskAPI) <: LogAPI.
 
 
   (** define the abstraction first, so we can interleave definitions and proofs *)
-
   Inductive log_abstraction (disk_state : OneDiskAPI.State) (log_state : LogAPI.State) : Prop :=
     (* fun fact: both states are just `list block` *)
 
@@ -240,11 +239,11 @@ Module Log (d : OneDiskAPI) <: LogAPI.
       let nonsense := 0 in
       forall
         (* maximum log length is (disk size - 1) *)
-        (Hlength_inbounds : not(diskSize disk_state = 0) -> length log_state < diskSize disk_state)
+        (Hlength_inbounds : ((not(diskSize disk_state = 0) -> length log_state < diskSize disk_state)) /\ (diskSize disk_state = 0 -> length log_state = 0))
         (* last entry on disk is the same as log length (or log length is 0) *)
         (Hlength_on_disk : length log_state = diskGetLogLength disk_state)
         (* for all nats i below log length, the block at i on the disk corresponds to the block at i in the log. *)
-        (Hentries : forall i : nat, i < length log_state -> diskGet disk_state i = nth_error log_state i)
+        (Hentries : log_state = firstn (length log_state) disk_state)
       ,
       log_abstraction disk_state log_state.
   Definition abstr : Abstraction State :=
@@ -254,10 +253,7 @@ Module Log (d : OneDiskAPI) <: LogAPI.
   Example abstr_1_ok : forall (len2 : block), block_to_addr len2 = 2 ->
 log_abstraction ([block0; block1; len2]) ([block0; block1]).
   Proof.
-    constructor; eauto; intros; simpl; simpl in *.
-    destruct (i == 0); intuition.
-    destruct (i == 1); intuition.
-    lia.
+    constructor; eauto; intros; simpl; simpl in *; lia.
   Qed.
 
   Example abstr_2_ok : forall (len0 : block), block_to_addr len0 = 0 ->
@@ -269,13 +265,7 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
   Example abstr_3_ok : forall (len2 : block), block_to_addr len2 = 2 ->
                                          log_abstraction ([block0; block1; block0; len2]) ([block0; block1]).
   Proof.
-    constructor; eauto; intros; simpl; simpl in *.
-    {
-      lia.
-    }
-    destruct (i == 0); intuition.
-    destruct (i == 1); intuition.
-    lia.
+    constructor; eauto; intros; simpl; simpl in *; lia.
   Qed.
 
 
@@ -420,14 +410,8 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
       }
     }
     {
-      (* log entries are correct: vacuously true for []. *)
-      intros.
-      simpl in H0.
-      assert (i < 0 -> False).
-      {
-        lia.
-      }
-      contradiction.
+      compute.
+      trivial.
     }
   Qed.
 
@@ -473,31 +457,119 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
     intuition.
   Qed.
 
-  Definition extract T (start : nat) (len : nat) (l : list T) :=
-    firstn len (skipn (start - len) l).
+  Theorem some_maybe_eq : forall T (t:T) (v:T),
+      maybe_eq (Some t) v ->
+      t = v.
+  Proof.
+    intros.
+    unfold maybe_eq in H.
+    unfold maybe_holds in H.
+    intuition.
+  Qed.
 
+  (*
+
+  Fixpoint diskGets_ (d : disk) (len : nat) (remaining : nat) : list block :=
+    match remaining with
+    | 0 => []
+    | S remaining' => match diskGet d (len - S remaining') with
+                     | None => []
+                     | Some b => b :: diskGets_ d len (remaining')
+                     end
+    end.
+
+  Example diskGets_1 :
+    diskGets_ ([block0;block1]) 2 2 = ([block0; block1]).
+  Proof.
+    compute.
+    trivial.
+  Qed.
+
+  Example diskGets_2 :
+    diskGets_ ([block0;block1]) 2 1 = ([(*block0;*)block1]).
+  Proof.
+    compute.
+    trivial.
+  Qed.
+
+  (*
+
+  (* need to restructure this proof to be able to induct on remaining.
+  or change how stuff gets passed in to *diskGets_*... *)
+  Theorem diskGets__eq : forall (d : disk) (l : list block),
+      diskSize d > length l ->
+      (forall (n : nat), n < length l -> diskGet d n = nth_error l n) ->
+      diskGets_ d (length l) (length l) = l.
+  Proof.
+    intros.
+    Check flat_map.
+    Admitted.
+    induction l.
+
+    {
+      compute.
+      trivial.
+    }
+    {
+      rewrite <- IHl.
+      {
+        admit.
+      }
+      {
+        admit.
+      }
+      {
+
+      }
+
+    }
+
+ Hlength_inbounds : (diskSize state <> 0 ->
+                      length state2 < diskSize state) /\
+                     (diskSize state = 0 -> length state2 = 0)
+  Hlength_on_disk : length state2 = diskGetLogLength state
+  Hentries : forall i : nat,
+             i < length state2 -> diskGet state i = nth_error state2 i
+  ============================
+  diskGets_ state (length state2) (length state2) = state2
+*)
+
+   *)
+
+  (*
+  a b c d
+
+  a b c d _ _ _ 4
+  ^               get_rec 4 4 = a ::
+    ^             get_rec 4 3 = b ::
+      ^           get_rec 4 2 = c ::
+        ^         get_rec 4 1 = d ::
+                  get_rec 4 0 = []
+   *)
+  Print firstn.
 
   (* helper for `get`. note: addr goes up as remaining goes down *)
-  Fixpoint get_rec (len : nat) (remaining : nat) : proc (list block) :=
+  Fixpoint get_rec (remaining : nat) : proc (list block) :=
     match remaining with
     | 0 =>
       Ret nil
-    | S remaining_ =>
-      b <- d.read (len - (S remaining_));
-        rest <- get_rec len remaining_;
+    | S remaining' =>
+      len <- log_length;
+        b <- d.read (len - remaining');
+        rest <- get_rec remaining';
         Ret (b :: rest)
     end.
-  Theorem get_rec_ok : forall (len:nat) (remaining:nat),
-      proc_spec (fun (_ : unit) disk_state => {|
-        pre := len <= diskSize disk_state /\ remaining <= len;
-        post := fun blocks disk_state' =>
-                 disk_state' = disk_state /\
-                 (* diskGets returns a list of options >:( *)
-                 map Some blocks = diskGets disk_state (len-remaining) (remaining)
+  Theorem get_rec_ok : forall (remaining:nat),
+      proc_spec (fun (_ : unit) disk_state =>
+                   let len := diskGetLogLength disk_state in {|
+                     pre := remaining <= len;
+                     post := fun blocks disk_state' =>
+                              disk_state' = disk_state /\
+                              blocks = skipn (len - remaining) (firstn  len disk_state)
                  ;
         recovered := fun _ disk_state' =>
                       disk_state' = disk_state
-      |}) (get_rec len remaining) recover d.abstr.
+      |}) (get_rec remaining) recover d.abstr.
   Proof.
     intros.
     induction remaining as [|remaining'].
@@ -513,34 +585,17 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
       }
       step_proc.
       clear Lexec. clear Lexec0.
-      rewrite H3.
-
-      (* prove that reads can't go out of bounds. *)
-      assert (diskGet state (len - S remaining') = Some r).
+      case (diskGet state (len - S remaining')) eqn:Heq.
       {
-        destruct (diskGet state (len - S remaining')) eqn:Heq.
-        {
-          unfold maybe_eq in H2.
-          unfold maybe_holds in H2.
-          intuition.
-        }
-        {
-          apply disk_inbounds_not_none in Heq.
-          2: {
-            apply disk_none_oob in Heq.
-            lia.
-          }
-          contradiction.
-        }
+        apply some_maybe_eq in H2.
+        rewrite <- H2.
+        trivial.
       }
-
-      rewrite H1.
-      assert (len - S remaining' + 1 = len - remaining').
       {
-        lia.
+        apply disk_inbounds_not_none in Heq.
+        2: lia.
+        contradiction.
       }
-      rewrite H4.
-      trivial.
     }
   Qed.
 
@@ -577,37 +632,13 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
     {
       exists state2. intuition.
       invert_abstraction.
-      Search diskGets.
-    }
+      rewrite <- Hlength_on_disk.
+      intuition.
+      (* need to show:
+         list equality from sizes + elements
 
-    step_proc_basic.
-    intros.
-    exists tt.
-    intuition.
 
-    step_proc.
-    {
-      admit.
-    }
-    {
-      admit.
-    }
-    {
-      exists state2. intuition.
-    }
-    step_proc.
-    {
-      exists state2. intuition.
-    }
-    unfold get_rec.
-    intro.
-    intros.
-    induction remaining.
-    step_proc.
-    step_proc.
-
-    step_proc_basic.
-
+      *)
 
   (* helper for `get`. note: addr goes up as bs shrinks *)
   Fixpoint append_rec (addr : nat) (bs : list block) : proc unit :=

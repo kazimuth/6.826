@@ -1,0 +1,3 @@
+1. Using transactions it would be easy to implement exactly-once delivery of a message. Why do we need these tricky protocols and the careful analysis that they require?
+
+The protocols push the trickiness of exactly-once-delivery lower in the stack, so that many system implementers don't need to worry about the details. It's much simpler to write a system when all you have to worry about is the message stream possibly ending, instead of becoming unordered.
