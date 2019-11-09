@@ -53,7 +53,7 @@ can also use assert / cut.
 e_auto.
 apply.
 f_equal.
-discriminate. find absurd equalities in hypotheses to give contradiction.
+discriminate. find absurd equalities in hypotheses to give contradiction. also show Some a <> None.
 intuition. ??? magic
    can break down implications.
    can add/strip constructors on either side of an equality.
@@ -67,6 +67,14 @@ apply h in h2. converts h2 : A into h2 : B.
 intros [=]. strip constructors on either side of an =.
 case (lt_dec a b); intros. analysis by cases of <, >=. (other _decs can be used too).
 congruence: overheard, owo
+inversion: pull out arguments from inductive equality! e.g.
+decide equality:
+   This tactic solves a goal of the form forall x y : R, {x = y} + {~ x = y}, where R is an inductive type such that its constructors do not take proofs or functions as arguments, nor objects in dependent types. It solves goals of the form {x = y} + {~ x = y} as well.
+revert: un-hypothesize.
+pose proof (H a b c): apply forall hypothesis to (a b c), introduce it as new.
+replace (...) with (...) by (...): shortcut for assert; rewrite.
+remember (...) as _.
+
 
 step_proc. step a POCS procedure. always worth trying :)
 
@@ -77,7 +85,13 @@ there's stuff about "stronger than omega" and "only reducing the head"
 can turn off notation (TODO: figure how that is doable in spacemacs)
 
 * theorems
+  eq_sym: equality is symmetric.
 
+* links
+  https://softwarefoundations.cis.upenn.edu/current/lf-current/Tactics.html#lab145
+https://softwarefoundations.cis.upenn.edu/current/lf-current/toc.html
+https://coq.inria.fr/library/Coq.Lists.List.html
+https://coq.inria.fr/refman/proof-engine/tactics.html
 * tips
 
 tips:

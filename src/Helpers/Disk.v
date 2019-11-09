@@ -517,7 +517,7 @@ Proof.
 Qed.
 
 Theorem diskUpd_diskGets_neq : forall count d a a0 v0,
-  (a0 < a \/ a0 > a + count) ->
+  (a0 < a \/ a0 >= a + count) ->
   diskGets (diskUpd d a0 v0) a count = diskGets d a count.
 Proof.
   induction count; simpl; intros; auto.

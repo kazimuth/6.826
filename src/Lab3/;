@@ -223,38 +223,6 @@ Module Log (d : OneDiskAPI) <: LogAPI.
     trivial.
   Qed.
 
-  Theorem diskGetLogLength_no_upd :
-    forall disk q i,
-      let size := diskSize disk in
-      i <> size - 1 ->
-      diskGetLogLength (diskUpd disk i q) = diskGetLogLength disk.
-  Proof.
-    intros.
-    unfold diskGetLogLength.
-    rewrite -> diskUpd_size.
-    unfold size.
-    rewrite -> diskUpd_neq by lia.
-    trivial.
-  Qed.
-
-  Theorem diskGetLogLength_no_upds :
-    forall bs disk a,
-      let size := diskSize disk in
-      a + length bs < size - 1 ->
-      diskGetLogLength (diskUpds disk a bs) = diskGetLogLength disk.
-  Proof.
-    induction bs; auto.
-    intros.
-    simpl.
-    rewrite diskGetLogLength_no_upd.
-    2: {
-      rewrite diskUpds_size. lia.
-    }
-    pose proof (@IHbs disk (a0+1)).
-    simpl in H.
-    rewrite H0; try lia; trivial.
-  Qed.
-
   (* checking that the list gets appended to in the order i think
      it does... *)
   Example list_order : nth_error ([1; 2; 3]) 0 = Some 1.
@@ -801,228 +769,16 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
   Qed.
 
 
-  (* strengthen this theorem; >= instead of >. *)
-  Theorem diskUpd_diskGets_neq : forall count d a a0 v0,
-      (a0 < a \/ a0 >= a + count) ->
-      diskGets (diskUpd d a0 v0) a count = diskGets d a count.
-  Proof.
-    induction count; simpl; intros; auto.
-    rewrite diskUpd_neq by lia.
-    rewrite IHcount by lia.
-    auto.
-  Qed.
-
-  Lemma app_inv_len : forall A (l1 l1' l2 l2' : list A),
-      l1 ++ l1' = l2 ++ l2' ->
-      length l1' = length l2' ->
-      l1 = l2 /\ l1' = l2'.
-  Proof.
-    induction l1 as [|x1 l1]; destruct l2 as [|x2 l2].
-    {
-      intros.
-      compute in H.
-      intuition.
-    }
-    {
-      intros.
-      absurd (length (nil ++ l1') = length ((x2 :: l2) ++ l2')).
-      - simpl. rewrite app_length. rewrite H0. lia.
-      - rewrite H. trivial.
-    }
-    {
-      intros.
-      absurd (length ((x1 :: l1) ++ l1') = length (nil ++ l2')).
-      - simpl. rewrite app_length. rewrite H0. lia.
-      - rewrite H. trivial.
-    }
-    {
-      intros.
-      cut (l1 ++ l1' = l2 ++ l2').
-      {
-        intros. pose proof (IHl1 l1' l2 l2' H1 H0); intuition.
-        apply app_inv_tail in H.
-        trivial.
-      }
-      injection H.
-      intros.
-      trivial.
-    }
-  Qed.
-
-  Check diskGets.
-
-  Lemma diskGets_length : forall (n:nat) (d : disk) (s:addr),
-      length (diskGets d s n) = n.
-  Proof.
-    induction n.
-    - auto.
-    - simpl. auto with arith.
-  Qed.
-
-  Theorem diskGets_lowerchunk : forall (s:addr) (d d':disk) (v:block),
-      diskSize d = diskSize d' ->
-      diskSize d >= s ->
-      diskGets d' 0 (s+1) = diskGets (diskUpd d s v) 0 (s+1) ->
-      diskGets d' 0 s = diskGets d 0 s.
-  Proof.
-    induction s.
-    {
-      auto.
-    }
-    {
-      intros.
-      repeat rewrite diskGets_app in H1.
-      replace (S s) with (s + 1) in * by lia.
-      rewrite diskUpd_diskGets_neq in H1 by lia.
-      apply app_inv_len in H1.
-      2: {
-        repeat rewrite diskGets_length.
-        trivial.
-      }
-      intuition.
-    }
-  Qed.
-
   (* helper for `append`. note: addr goes up as bs shrinks *)
-  Fixpoint append_rec (bs : list block) (end_ : nat) : proc unit :=
+  Fixpoint append_rec (addr : nat) (bs : list block) : proc unit :=
     match bs with
     | nil =>
       Ret tt
     | cons b bs_ =>
-      _ <- d.write (end_ - length bs) b;
-      _ <- append_rec bs_ (end_);
+      _ <- d.write addr b;
+      _ <- append_rec (S addr) bs_;
       Ret tt
     end.
-
-
-  (* note: writes from (end - len bs) to end, exclusive *)
-  Theorem append_rec_ok : forall (bs : list block) (end_ : nat) ,
-      proc_spec (fun (_ : unit) disk_state =>
-                   let len := diskGetLogLength disk_state in
-                   let addr := (end_ - length bs) in {|
-                     pre := end_ < (diskSize disk_state) /\ end_ > 0 /\ length bs < end_;
-                     post := fun _ disk_state' =>
-                              disk_state' = diskUpds disk_state addr bs /\
-                              diskGetLogLength disk_state' = diskGetLogLength disk_state /\
-                              diskSize disk_state' = diskSize disk_state
-                     ;
-                     recovered := fun _ disk_state' =>
-                                   disk_state' = disk_state \/
-                                   (* we don't care what gets written as long as their
-                                   log entries proper are safe.*)
-                                   diskGets disk_state' 0 addr = diskGets disk_state 0 addr /\
-                                   diskGetLogLength disk_state = diskGetLogLength disk_state' /\
-
-                                   diskSize disk_state' = diskSize disk_state
-                                   ;
-      |}) (append_rec bs end_) recover d.abstr.
-  Proof.
-    induction bs.
-    {
-      simpl.
-      step_proc.
-      intuition.
-    }
-    {
-      step_proc.
-      {
-        destruct H2 as [Hfailed | Hsucceeded].
-        {
-          intuition.
-        }
-        {
-          right.
-          split; intuition.
-          {
-            rewrite diskUpd_diskGets_neq by lia.
-            trivial.
-          }
-          {
-            rewrite diskGetLogLength_no_upd by lia.
-            trivial.
-          }
-          {
-            rewrite diskUpd_size.
-            trivial.
-          }
-        }
-      }
-      step_proc.
-      {
-        rewrite diskUpd_size.
-        lia.
-      }
-      {
-
-
-        right.
-        destruct H1 as [Hnoop | Hmutate].
-        {
-          split; intuition.
-          {
-            rewrite diskUpd_diskGets_neq by lia.
-            trivial.
-          }
-          {
-            rewrite diskGetLogLength_no_upd by lia.
-            trivial.
-          }
-          {
-            rewrite diskUpd_size.
-            trivial.
-          }
-        }
-        {
-          intuition; rewrite diskUpd_size in H3; rewrite diskGetLogLength_no_upd in H2 by lia; try assumption.
-          {
-            remember (end_ - S (length bs)) as newstart.
-            remember (end_ - length bs) as oldstart.
-
-            destruct (oldstart == newstart).
-            {
-              rewrite e in H1.
-              rewrite diskUpd_diskGets_neq in H1 by lia.
-              assumption.
-            }
-            {
-              replace oldstart with (newstart + 1) in * by lia.
-              pose proof (@diskGets_lowerchunk newstart state state' a).
-              rewrite H4; trivial; intuition. lia.
-            }
-          }
-        }
-      }
-      assert (2 <= diskSize state).
-      {
-        lia.
-      }
-      destruct (diskSize state == 2).
-      2: {
-      step_proc.
-      {
-        rewrite diskUpds_diskUpd_before.
-        rewrite <- diskUpds_diskUpd_comm.
-        2: {
-
-        }
-        rewrite (end - length bs)
-      }
-      {
-        rewrite diskGetLogLength_no_upds.
-        2: {
-
-        }
-      }
-      {
-        rewrite diskUpds_size in H3.
-        repeat rewrite diskUpd_size in H3.
-
-      }
-    }
-
-
-
-
   Definition append (bs : list block) : proc bool :=
     size <- d.size;
     len <- log_length;
@@ -1053,63 +809,11 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
         exists state2. intuition.
       }
       {
-        exists []. intuition.
-        destruct (diskSize state) eqn:Heq.
-        {
-          constructor; invert_abstraction; simpl; auto.
-          {
-            lia.
-          }
-          rewrite diskGetLogLength_zero.
-          2: {
-            rewrite diskUpd_size. assumption.
-          }
-          trivial.
-        }
-        {
-          constructor; invert_abstraction; simpl; auto.
-          {
-            lia.
-          }
-          {
-            replace (n - 0) with (diskSize state - 1) by lia.
-            rewrite diskGetLogLength_upd by lia.
-            intuition.
-          }
-        }
+        exists [].
+        
       }
     }
-    assert (log_abstraction state [diskSize state - 1 |-> r] nil).
-    {
-      intuition.
-      destruct (diskSize state) eqn:Heq.
-      {
-        constructor; invert_abstraction; simpl; auto.
-        {
-          lia.
-        }
-        rewrite diskGetLogLength_zero.
-        2: {
-          rewrite diskUpd_size. assumption.
-        }
-        trivial.
-      }
-      {
-        constructor; invert_abstraction; simpl; auto.
-        {
-          lia.
-        }
-        {
-          replace (n - 0) with (diskSize state - 1) by lia.
-          rewrite diskGetLogLength_upd by lia.
-          intuition.
-        }
-      }
-    }
-    step_proc.
-    { exists []. intuition. }
-    { exists []. intuition. }
-  Qed.
+
 
 
 

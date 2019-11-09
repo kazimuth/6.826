@@ -546,6 +546,88 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
 
   Hint Resolve get_rec_ok : core.
 
+  Theorem diskUpds_diskGets_neq : forall count d a a0 vs,
+      (a0 + length vs < a \/ a0 >= a + count) ->
+      diskGets (diskUpds d a0 vs) a count = diskGets d a count.
+  Proof.
+    induction count; simpl; intros; auto.
+    rewrite diskUpds_neq by lia.
+    rewrite IHcount by lia.
+    auto.
+  Qed.
+
+  Theorem list_cons_app_unit_eq : forall A (l:list A) (a:A),
+      a :: l = [a] ++ l.
+  Proof.
+    easy.
+  Qed.
+
+  Theorem list_all_eq : forall A,
+      forall (l1 l2:list A),
+      (forall (i:nat),
+      nth_error l1 i = nth_error l2 i) -> l1 = l2.
+  Proof.
+    induction l1.
+    {
+      intros.
+      pose proof (H 0).
+      simpl in H0.
+      destruct l2; [auto | discriminate].
+    }
+    {
+      intros.
+      rename l2 into l3.
+      rewrite -> list_cons_app_unit_eq in H.
+      destruct l3 eqn:Heq.
+      {
+        pose proof (H 0).
+        destruct l1; auto; simpl in *; discriminate.
+      }
+      {
+        rename l into l3'.
+        replace (a0 :: l3') with ([a0] ++ l3') in Heq,H.
+        2: {
+          rewrite <- list_cons_app_unit_eq. trivial.
+        }
+
+        assert (forall i : nat, nth_error l1 i = nth_error l3' i).
+        {
+          intros.
+          pose proof (H (i + 1)).
+          rewrite nth_error_app2 in H0.
+          2: simpl; lia.
+          rewrite nth_error_app2 in H0.
+          2: simpl; lia.
+          simpl in H0.
+          assert (i + 1 - 1 = i).
+          {
+            lia.
+          }
+          repeat rewrite H1 in H0.
+          trivial.
+        }
+
+        pose proof (IHl1 l3' H0).
+        pose proof (H 0) as Hhead.
+        simpl in Hhead.
+        inversion Hhead.
+        intuition.
+      }
+    }
+  Qed.
+
+  Theorem diskUpds_diskGets_eq : forall vs d a,
+      a + length vs <= diskSize d ->
+      diskGets (diskUpds d a vs) a (length vs) = map Some vs.
+  Proof.
+    induction vs; simpl; intros; auto.
+    rewrite diskUpd_eq.
+    - rewrite diskUpd_diskGets_neq by lia.
+      rewrite IHvs by lia.
+      auto.
+    - rewrite diskUpds_size. lia.
+  Qed.
+
   Definition get : proc (list block) :=
     len <- log_length;
     r <- get_rec len len;
@@ -577,9 +659,36 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
     {
       exists state2. intuition.
       invert_abstraction.
-      assert (diskGets state (diskGetLogLength state -
-      Search diskGets.
+      replace (diskGetLogLength state - diskGetLogLength state) with 0 in H2 by lia.
+      assert (forall i:N, nth_error r = nth_error diskGets )
+
+      assert (forall i:nat, nth_error r i = nth_error state2 i).
+      {
+        intros.
+        destruct (lt_dec i (length state2)).
+        {
+          admit.
+        }
+        {
+          assert (nth_error state2 i = None).
+          {
+            rewrite nth_error_None.
+            lia.
+          }
+          rewrite
+
+
+
+
+        intros. rewrite <- Hentries.
+      }
+      apply list_all_eq.
+      assumption.
     }
+    {
+      exists state2. intuition.
+    }
+  Qed.
 
   (* helper for `get`. note: addr goes up as bs shrinks *)
   Fixpoint append_rec (addr : nat) (bs : list block) : proc unit :=
