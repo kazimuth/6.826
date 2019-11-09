@@ -273,7 +273,6 @@ Proof.
   intros.
   apply nth_error_ext_eq; intros.
   destruct (lt_dec a (length l1)); eauto.
-  Search nth_error.
   assert (nth_error l1 a = None).
   apply nth_error_None; lia.
   assert (nth_error l2 a = None).
