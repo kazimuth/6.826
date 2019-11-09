@@ -251,19 +251,46 @@ Hint Resolve maybe_eq_None_holds : core.
 Theorem disk_ext_eq : forall d d',
     (forall a, diskGet d a = diskGet d' a) ->
     d = d'.
+Theorem nth_error_ext_eq A : forall (l1 l2: list A),
+    (forall a, nth_error l1 a = nth_error l2 a) ->
+    l1 = l2.
 Proof.
-  induction d; simpl; intros.
-  - destruct d'; simpl; intros; eauto.
+  induction l1; simpl; intros.
+  - destruct l2; simpl; intros; eauto.
     specialize (H 0); simpl in *.
     congruence.
-  - destruct d'; simpl; intros.
+  - destruct l2; simpl; intros.
     + specialize (H 0); simpl in *.
       congruence.
     + specialize (H 0) as H'; simpl in H'.
       f_equal; try congruence.
-      eapply IHd; intros.
-      specialize (H (S a0)); simpl in H.
+      eapply IHl1; intros.
+      specialize (H (S a1)); simpl in H.
       eauto.
+Qed.
+
+Theorem nth_error_ext_inbounds_eq A : forall (l1 l2: list A),
+    length l1 = length l2 ->
+    (forall a, a < length l1 -> nth_error l1 a = nth_error l2 a) ->
+    l1 = l2.
+Proof.
+  intros.
+  apply nth_error_ext_eq; intros.
+  destruct (lt_dec a (length l1)); eauto.
+  Search nth_error.
+  assert (nth_error l1 a = None).
+  apply nth_error_None; lia.
+  assert (nth_error l2 a = None).
+  apply nth_error_None; lia.
+  congruence.
+Qed.
+
+Theorem disk_ext_eq : forall d d',
+    (forall a, diskGet d a = diskGet d' a) ->
+    d = d'.
+Proof.
+  intros.
+  apply nth_error_ext_eq; auto.
 Qed.
 
 Theorem disk_ext_inbounds_eq : forall d d',
@@ -272,9 +299,7 @@ Theorem disk_ext_inbounds_eq : forall d d',
     d = d'.
 Proof.
   intros.
-  apply disk_ext_eq; intros.
-  destruct (lt_dec a (diskSize d)); eauto.
-  rewrite ?disk_oob_eq by congruence; auto.
+  apply nth_error_ext_inbounds_eq; auto.
 Qed.
 
 (** ** Theorems about diskUpd *)
@@ -516,6 +541,69 @@ Proof.
   auto.
 Qed.
 
+Theorem diskGets_length : forall d a count,
+    length (diskGets d a count) = count.
+Proof.
+  intros.
+  revert a.
+  induction count; simpl; auto.
+Qed.
+
+Theorem diskGets_index : forall d a count i,
+    i < count ->
+    nth_error (diskGets d a count) i = Some (diskGet d (a+i)).
+Proof.
+  intros.
+  generalize dependent i.
+  revert a.
+  induction count; simpl; intros.
+  - lia.
+  - destruct i; simpl.
+    replace (a+0) with a by lia; auto.
+    rewrite IHcount by lia.
+    replace (a+1+i) with (a+S i) by lia; auto.
+Qed.
+
+Hint Rewrite diskGets_length : disk_size.
+Section diskGets_proof.
+Hint Rewrite nth_error_app1 using (autorewrite with disk_size in *; lia) : upd.
+Hint Rewrite nth_error_app2 using (autorewrite with disk_size in *; lia) : upd.
+Hint Rewrite diskGets_index using lia : upd.
+
+Theorem diskGets_app_disk : forall d1 d2 a count,
+    count >= length d1-a ->
+    a < length d1 ->
+    diskGets (d1 ++ d2) a count =
+    diskGets d1 a (length d1 - a) ++ diskGets d2 0 (count - (length d1-a)).
+Proof.
+  intros.
+  apply nth_error_ext_inbounds_eq.
+  { repeat rewrite ?diskGets_length, ?app_length.
+    lia. }
+  intros i **.
+  autorewrite with disk_size upd in *.
+  rewrite diskGets_index by lia.
+  destruct (lt_dec i (length d1 - a));
+    unfold diskGet;
+    autorewrite with disk_size upd in *.
+  - auto.
+  - unfold diskGet.
+    do 2 f_equal.
+    lia.
+Qed.
+End diskGets_proof.
+
+Theorem diskGets_append_one : forall d1 a x count,
+    a < length d1 ->
+    a + count = S (length d1) ->
+    diskGets (d1 ++ x::nil) a count =
+    diskGets d1 a (length d1 - a) ++ (Some x::nil).
+Proof.
+  intros.
+  rewrite diskGets_app_disk by lia.
+  replace (count - (length d1 - a)) with 1 by lia; simpl; auto.
+Qed.
+
 Theorem diskUpd_diskGets_neq : forall count d a a0 v0,
   (a0 < a \/ a0 >= a + count) ->
   diskGets (diskUpd d a0 v0) a count = diskGets d a count.
@@ -548,6 +636,59 @@ Proof.
   - rewrite diskUpds_size. lia.
 Qed.
 
+Theorem append_size : forall d1 d2,
+    diskSize (d1 ++ d2) = diskSize d1 + diskSize d2.
+Proof.
+  apply app_length.
+Qed.
+
+Hint Rewrite append_size : disk_size.
+Hint Rewrite diskUpds_size : disk_size.
+
+Theorem diskUpd_app1 : forall d1 d2 a v,
+    a < length d1 ->
+    diskUpd (d1 ++ d2) a v = diskUpd d1 a v ++ d2.
+Proof.
+  induction d1; simpl; intros.
+  - lia.
+  - destruct a0; simpl; auto.
+    rewrite IHd1 by lia; auto.
+Qed.
+
+Theorem diskUpd_app2 : forall d1 d2 a v,
+    a >= length d1 ->
+    diskUpd (d1 ++ d2) a v = d1 ++ diskUpd d2 (a - length d1) v.
+Proof.
+  induction d1; simpl; intros.
+  - replace (a-0) with a by lia; auto.
+  - destruct a0; simpl; try lia.
+    rewrite IHd1 by lia; auto.
+Qed.
+
+Theorem diskUpds_app1 : forall d1 d2 n v,
+    n+length v < length d1 ->
+  diskUpds (d1 ++ d2) n v = diskUpds d1 n v ++ d2.
+Proof.
+  intros.
+  generalize dependent n.
+  induction v; simpl; auto; intros.
+  rewrite IHv by lia.
+  rewrite diskUpd_app1; auto.
+  autorewrite with disk_size.
+  unfold diskSize; lia.
+Qed.
+
+Theorem diskUpds_app2 : forall d1 d2 n v,
+  length d1 <= n ->
+  diskUpds (d1 ++ d2) n v = d1 ++ diskUpds d2 (n - length d1) v.
+Proof.
+  intros.
+  generalize dependent n.
+  induction v; simpl; auto; intros.
+  rewrite IHv by lia.
+  rewrite diskUpd_app2 by lia.
+  replace (n + 1 - length d1) with (n - length d1 + 1) by lia; auto.
+Qed.
 
 (** We combine all of the above theorems into a hint database called "upd".
     This means that, when you type [autorewrite with upd] in some Coq proof,
