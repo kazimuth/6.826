@@ -226,7 +226,7 @@ Module Log (d : OneDiskAPI) <: LogAPI.
   Theorem diskGetLogLength_no_upd :
     forall disk q i,
       let size := diskSize disk in
-      i <> size - 1 ->
+      i < size - 1 ->
       diskGetLogLength (diskUpd disk i q) = diskGetLogLength disk.
   Proof.
     intros.
@@ -238,19 +238,22 @@ Module Log (d : OneDiskAPI) <: LogAPI.
   Qed.
 
   Theorem diskGetLogLength_no_upds :
-    forall bs disk a,
+    forall bs disk start,
       let size := diskSize disk in
-      a + length bs < size - 1 ->
-      diskGetLogLength (diskUpds disk a bs) = diskGetLogLength disk.
+      start + length bs <= size - 1 ->
+      diskGetLogLength (diskUpds disk start bs) = diskGetLogLength disk.
   Proof.
-    induction bs; auto.
+    induction bs as [| x bs']; auto.
     intros.
     simpl.
     rewrite diskGetLogLength_no_upd.
     2: {
-      rewrite diskUpds_size. lia.
+      rewrite diskUpds_size.
+      assert (length (x :: bs') >= 1).
+      { simpl. lia. }
+      lia.
     }
-    pose proof (@IHbs disk (a0+1)).
+    pose proof (@IHbs' disk (start+1)).
     simpl in H.
     rewrite H0; try lia; trivial.
   Qed.
@@ -505,66 +508,6 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
     easy.
   Qed.
 
-  (* a theorem to equate lists by equating all their elements.
-  there's probably an easier way to do this... *)
-  Theorem list_all_eq : forall A,
-      forall (l1 l2:list A),
-      (forall (i:nat),
-      nth_error l1 i = nth_error l2 i) -> l1 = l2.
-  Proof.
-    induction l1.
-    {
-      intros.
-      pose proof (H 0).
-      simpl in H0.
-      destruct l2; [auto | discriminate].
-    }
-    {
-      intros.
-      rename l2 into l3.
-      rewrite -> list_cons_app_unit_eq in H.
-      destruct l3 eqn:Heq.
-      {
-        pose proof (H 0).
-        destruct l1; auto; simpl in *; discriminate.
-      }
-      {
-        rename l into l3'.
-        replace (a0 :: l3') with ([a0] ++ l3') in Heq,H.
-        2: {
-          rewrite <- list_cons_app_unit_eq. trivial.
-        }
-
-        assert (forall i : nat, nth_error l1 i = nth_error l3' i).
-        {
-          intros.
-          pose proof (H (i + 1)).
-          rewrite nth_error_app2 in H0.
-          2: simpl; lia.
-          rewrite nth_error_app2 in H0.
-          2: simpl; lia.
-          simpl in H0.
-          assert (i + 1 - 1 = i).
-          {
-            lia.
-          }
-          repeat rewrite H1 in H0.
-          trivial.
-        }
-
-        pose proof (IHl1 l3' H0).
-        pose proof (H 0) as Hhead.
-        simpl in Hhead.
-        inversion Hhead.
-        intuition.
-      }
-    }
-  Qed.
-
-  (*
-   *)
-  Search skipn.
-
   (*
   Theorem cons_skipn_eq : forall A (l:list A) (a:A) (n:nat),
                  Some a = nth_error l (n-1) ->
@@ -796,10 +739,144 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
       rewrite skipn_O.
       intuition.
     }
-    {exists state2.  simpl. intuition.
-    }
+    { exists state2.  simpl. intuition. }
   Qed.
 
+  Theorem diskGets_oob_eq : forall n (s : disk) a,
+      a >= diskSize s ->
+      diskGets s a n = repeat None n.
+  Proof.
+    induction n.
+    - intros. simpl. congruence.
+    - intros. simpl. rewrite disk_oob_eq by lia.
+      rewrite IHn by lia. trivial.
+  Qed.
+
+  (*
+  Theorem diskGets_offset : forall pre n (s : disk),
+      diskGets (pre ++ s) (diskSize pre) n = diskGets s 0 n.
+  Proof.
+    induction pre as [|p' pre'].
+    - intros. auto.
+    - destruct n.
+      { intros. compute. trivial. }
+      destruct s as [|b' s'].
+      { simpl. rewrite disk_oob_eq.
+        2: rewrite app_nil_r; lia.
+        rewrite diskGets_oob_eq.
+        2: rewrite app_nil_r; simpl; lia.
+        rewrite diskGets_oob_eq by auto with arith.
+        trivial.
+      }
+      {
+        simpl.
+        replace (diskGet (pre' ++ b' :: s') (diskSize pre')) with (Some b').
+        2: { specialize (IHpre' 1 (b' :: s')). simpl in *. congruence. }
+        replace (diskGets (p' :: pre' ++ b' :: s') (S (diskSize pre' + 1)) n)
+          with (diskGets (pre' ++ b' :: s') (S (diskSize pre')) n).
+        2: {
+          Admitted.
+   *)
+
+  Theorem diskGets_first_S : forall count d a,
+      diskGets d a (S count) = diskGet d a :: diskGets d (a+1) count.
+  Proof.
+    intros.
+    reflexivity.
+  Qed.
+
+  Section diskGets_proof.
+    Hint Rewrite nth_error_app1 using (autorewrite with disk_size in *; lia) : upd.
+    Hint Rewrite nth_error_app2 using (autorewrite with disk_size in *; lia) : upd.
+    Hint Rewrite diskGets_index using lia : upd.
+
+    Theorem diskGets_app_disk : forall d1 d2 a count,
+        count >= length d1-a ->
+        a < length d1 ->
+        diskGets (d1 ++ d2) a count =
+        diskGets d1 a (length d1 - a) ++ diskGets d2 0 (count - (length d1-a)).
+    Proof.
+      intros.
+      apply nth_error_ext_inbounds_eq.
+      { repeat rewrite ?diskGets_length, ?app_length.
+        lia. }
+      intros i **.
+      autorewrite with disk_size upd in *.
+      rewrite diskGets_index by lia.
+      destruct (lt_dec i (length d1 - a));
+        unfold diskGet;
+        autorewrite with disk_size upd in *.
+      - auto.
+      - unfold diskGet.
+        do 2 f_equal.
+        lia.
+    Qed.
+
+    Theorem diskGets_app_disk_skip : forall d1 d2 a count,
+        a >= length d1 ->
+        diskGets (d1 ++ d2) a count =
+        diskGets d2 (a - length d1) count.
+    Proof.
+      intros.
+      apply nth_error_ext_inbounds_eq.
+      { repeat rewrite ?diskGets_length, ?app_length.
+        lia. }
+      intros i **.
+      autorewrite with disk_size upd in *.
+      rewrite diskGets_index by lia.
+      destruct (lt_dec i (length d1 - a));
+        unfold diskGet;
+        autorewrite with disk_size upd in *.
+      - auto.
+      - unfold diskGet.
+        do 2 f_equal.
+        lia.
+    Qed.
+
+    Theorem diskGets_app_disk_ext : forall d1 d2 a count,
+        count < length d1 - a ->
+        a < length d1 ->
+        diskGets (d1 ++ d2) a count =
+        diskGets d1 a count.
+    Proof.
+      intros.
+      apply nth_error_ext_inbounds_eq.
+      { repeat rewrite ?diskGets_length, ?app_length.
+        lia. }
+      intros i **.
+      autorewrite with disk_size upd in *.
+      rewrite diskGets_index by lia.
+      destruct (lt_dec i (length d1 - a));
+        unfold diskGet;
+        autorewrite with disk_size upd in *.
+      - auto.
+      - unfold diskGet.
+        trivial.
+    Qed.
+  End diskGets_proof.
+
+  Theorem diskGets_firstn_eq : forall (s s' : disk) (n:nat),
+      diskGets s 0 n = diskGets s' 0 n ->
+      firstn n s = firstn n s'.
+  Proof.
+    induction s.
+    - destruct s'; simpl; intros; destruct n; simpl in *; eauto; try congruence.
+    - destruct s'; simpl.
+      + intros; destruct n; simpl in *; eauto; try congruence.
+      + intros. destruct n as [| n'].
+        * compute. trivial.
+        * repeat rewrite diskGets_first_S in H.
+          simpl. simpl in H.
+          replace (diskGets (a :: s) 1 n') with (diskGets ([a] ++ s) 1 n') in H.
+          2: rewrite <- list_cons_app_unit_eq; trivial.
+          replace (diskGets (b :: s') 1 n') with (diskGets ([b] ++ s') 1 n') in H.
+          2: rewrite <- list_cons_app_unit_eq; trivial.
+
+          repeat rewrite diskGets_app_disk_skip in H by auto with arith.
+          simpl in *.
+          assert (a = b) by congruence.
+          rewrite <- (@IHs s'); congruence.
+  Qed.
 
   (* strengthen this theorem; >= instead of >. *)
   Theorem diskUpd_diskGets_neq : forall count d a a0 v0,
@@ -818,26 +895,17 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
       l1 = l2 /\ l1' = l2'.
   Proof.
     induction l1 as [|x1 l1]; destruct l2 as [|x2 l2].
-    {
-      intros.
-      compute in H.
-      intuition.
-    }
-    {
-      intros.
+    { intros. compute in H. intuition. }
+    { intros.
       absurd (length (nil ++ l1') = length ((x2 :: l2) ++ l2')).
       - simpl. rewrite app_length. rewrite H0. lia.
-      - rewrite H. trivial.
-    }
-    {
-      intros.
+      - rewrite H. trivial. }
+    { intros.
       absurd (length ((x1 :: l1) ++ l1') = length (nil ++ l2')).
       - simpl. rewrite app_length. rewrite H0. lia.
-      - rewrite H. trivial.
-    }
+      - rewrite H. trivial. }
     {
-      intros.
-      cut (l1 ++ l1' = l2 ++ l2').
+      intros. cut (l1 ++ l1' = l2 ++ l2').
       {
         intros. pose proof (IHl1 l1' l2 l2' H1 H0); intuition.
         apply app_inv_tail in H.
@@ -848,8 +916,6 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
       trivial.
     }
   Qed.
-
-  Check diskGets.
 
   Lemma diskGets_length : forall (n:nat) (d : disk) (s:addr),
       length (diskGets d s n) = n.
@@ -894,13 +960,26 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
       Ret tt
     end.
 
+  (*
+
+   [ a  b  c  d  e  f  g  h  2 ]
+        ^
+        len         ^
+          [q  r  s] end
+           ^
+           bs
+
+
+  *)
 
   (* note: writes from (end - len bs) to end, exclusive *)
   Theorem append_rec_ok : forall (bs : list block) (end_ : nat) ,
       proc_spec (fun (_ : unit) disk_state =>
                    let len := diskGetLogLength disk_state in
                    let addr := (end_ - length bs) in {|
-                     pre := end_ < (diskSize disk_state) /\ end_ > 0 /\ length bs < end_;
+                     pre := end_ < (diskSize disk_state)
+                           /\ end_ > 0
+                           /\ length bs <= end_ - len;
                      post := fun _ disk_state' =>
                               disk_state' = diskUpds disk_state addr bs /\
                               diskGetLogLength disk_state' = diskGetLogLength disk_state /\
@@ -947,16 +1026,10 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
           }
         }
       }
-      step_proc.
+      step_proc; try rewrite diskUpd_size; try rewrite diskGetLogLength_no_upd; try lia.
       {
-        rewrite diskUpd_size.
-        lia.
-      }
-      {
-
-
         right.
-        destruct H1 as [Hnoop | Hmutate].
+        destruct H2 as [Hnoop | Hmutate].
         {
           split; intuition.
           {
@@ -973,65 +1046,239 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
           }
         }
         {
-          intuition; rewrite diskUpd_size in H3; rewrite diskGetLogLength_no_upd in H2 by lia; try assumption.
+          intuition; rewrite diskUpd_size in H4; rewrite diskGetLogLength_no_upd in H3 by lia; try assumption.
           {
             remember (end_ - S (length bs)) as newstart.
             remember (end_ - length bs) as oldstart.
 
             destruct (oldstart == newstart).
             {
-              rewrite e in H1.
-              rewrite diskUpd_diskGets_neq in H1 by lia.
+              rewrite e in H2.
+              rewrite diskUpd_diskGets_neq in H2 by lia.
               assumption.
             }
             {
               replace oldstart with (newstart + 1) in * by lia.
               pose proof (@diskGets_lowerchunk newstart state state' a).
-              rewrite H4; trivial; intuition. lia.
+              rewrite H5; trivial; intuition. lia.
             }
           }
         }
       }
-      assert (2 <= diskSize state).
-      {
-        lia.
-      }
-      destruct (diskSize state == 2).
-      2: {
       step_proc.
       {
-        rewrite diskUpds_diskUpd_before.
-        rewrite <- diskUpds_diskUpd_comm.
-        2: {
-
-        }
-        rewrite (end - length bs)
+        replace (end_ - S (length bs) + 1) with (end_ - length bs).
+        2: lia.
+        rewrite diskUpds_diskUpd_comm by lia.
+        trivial.
       }
       {
-        rewrite diskGetLogLength_no_upds.
-        2: {
-
-        }
-      }
-      {
-        rewrite diskUpds_size in H3.
-        repeat rewrite diskUpd_size in H3.
-
+        right.
+        intuition.
+        rewrite diskUpds_diskGets_neq by lia.
+        rewrite diskUpd_diskGets_neq by lia.
+        trivial.
       }
     }
+  Qed.
 
-
-
+  Hint Resolve append_rec_ok : core.
 
   Definition append (bs : list block) : proc bool :=
     size <- d.size;
     len <- log_length;
-    if lt_dec (len + length bs) size then
-      _ <- append_rec len bs;
+    if length bs == 0 then
+      Ret true
+    else if lt_dec (len + length bs) (size-1) then
+      _ <- append_rec bs (len + length bs);
+      new_len <- addr_to_block (len + length bs);
+      _ <- d.write (size - 1) new_len;
       Ret true
     else
       Ret false.
-  Axiom append_ok : forall v, proc_spec (append_spec v) (append v) recover abstr.
+  (*
+  Definition append_spec v : Specification unit bool unit State :=
+  fun (_ : unit) state => {|
+    pre := True;
+    post := fun r state' => r = true /\ state' = state ++ v \/
+                            r = false /\ state' = state;
+    recovered := fun _ state' => state' = state \/ state' = state ++ v
+  |}.
+  *)
+
+  Theorem append_ok : forall bs, proc_spec (append_spec bs) (append bs) recover abstr.
+  Proof.
+    intros.
+    apply spec_abstraction_compose; simpl.
+    step_proc.
+    { exists state2. intuition. }
+    step_proc.
+    { exists state2. intuition. }
+    destruct (equal_dec (length bs) 0).
+    {
+      step_proc.
+      {
+        apply length_zero_iff_nil in e. exists state2. rewrite e. intuition. left. intuition.
+        rewrite <- app_nil_end. trivial.
+      }
+      {
+        apply length_zero_iff_nil in e. exists state2. rewrite e. intuition.
+      }
+    }
+    destruct (lt_dec (r + length bs) (diskSize state - 1)).
+    2: {
+      step_proc.
+      { exists state2. intuition. }
+      { exists state2. intuition. }
+    }
+    (* THE JUICE *)
+    step_proc; try intuition; try lia.
+    {
+      exists state2. intuition.
+    }
+    {
+      exists (state2).
+      invert_abstraction.
+      intuition.
+      constructor.
+      {
+        intuition; lia.
+      }
+      {
+        rewrite Hlength_on_disk. assumption.
+      }
+      {
+        rewrite Hentries at 1.
+        replace (diskGetLogLength state + length bs - length bs) with (diskGetLogLength state) in H1 by lia.
+        rewrite <- Hlength_on_disk in H1.
+        apply diskGets_firstn_eq in H1.
+        congruence.
+      }
+    }
+
+    (* helper lemma *)
+    assert (diskGets (diskUpds state (length state2) bs) 0 (length state2) =
+                         diskGets state 0 (length state2)) as Hno_upd_entries.
+    { rewrite diskUpds_diskGets_neq by lia; trivial. }
+    apply diskGets_firstn_eq in Hno_upd_entries.
+
+    assert (log_abstraction state [diskGetLogLength state |=> bs] state2) as Hpre_write.
+    {
+      (* prove the state valid pre-write. *)
+      invert_abstraction.
+      intuition.
+      constructor.
+      {
+        split.
+        {
+          intuition. rewrite diskUpds_size. lia.
+        }
+        {
+          intuition. rewrite diskUpds_size in H1. lia.
+        }
+      }
+      {
+        rewrite Hlength_on_disk.
+        rewrite diskGetLogLength_no_upds by lia.
+        trivial.
+      }
+      {
+        rewrite <- Hlength_on_disk in *.
+
+        rewrite <- Hentries in Hno_upd_entries.
+        congruence.
+      }
+    }
+
+    step_proc.
+    {
+      exists state2. intuition.
+      replace (diskGetLogLength state + length bs - length bs) with (diskGetLogLength state) by lia.
+      assumption.
+    }
+
+    assert (block_to_addr r0 = diskGetLogLength state + length bs
+            -> log_abstraction
+                (state [diskGetLogLength state + length bs - length bs |=> bs]
+                       [diskSize state - 1 |-> r0])
+                (state2 ++ bs)) as Hpost_write.
+    {
+      intros.
+      invert_abstraction.
+      constructor; intros; simpl in *; eauto;
+        repeat rewrite diskUpd_size in * by lia;
+        repeat rewrite diskUpds_size in * by lia;
+        repeat rewrite diskGetLogLength_no_upds in * by lia.
+      {
+        destruct (diskSize state == 0); intuition; rewrite app_length; lia.
+      }
+      {
+        intuition.
+        rewrite app_length.
+        unfold diskGetLogLength at 1.
+        rewrite -> diskUpd_size.
+        rewrite -> diskUpds_size.
+        rewrite -> diskUpd_eq.
+        2: { rewrite diskUpds_size. lia. }
+        lia.
+      }
+      {
+        rewrite <- Hlength_on_disk.
+        replace (length state2 + length bs - length bs) with (length state2) by lia.
+        rewrite app_length.
+        replace (firstn (length state2 + length bs)
+                       state [length state2 |=> bs] [diskSize state - 1 |-> r0])
+                       with (firstn (length state2 + length bs) state [length state2 |=> bs]).
+        2: admit.
+        rewrite firstn_app_2.
+
+        Search firstn app.
+        rewrite firstn_app_2.
+
+        (* helper lemma *)
+        assert (diskGets (diskUpds state (length state2) bs) 0 (length state2) =
+                         diskGets state 0 (length state2)) as Hno_upd_entries.
+    { rewrite diskUpds_diskGets_neq by lia; trivial. }
+    apply diskGets_firstn_eq in Hno_upd_entries.
+      }
+
+    intros.
+    unfold diskGetLogLength.
+    unfold size.
+    trivial.
+        rewrite diskUpd
+
+
+
+
+        rewrite diskUpd_
+
+        assert
+        rewrite diskGetLogLength_upd.
+      }
+      {
+
+      }
+      admit.
+    }
+
+    step_proc.
+    {
+      destruct H as [Hfailed_before | Hfailed_after].
+      {
+        exists state2.
+        intuition.
+        replace (diskGetLogLength state + length bs - length bs) with (diskGetLogLength state) by lia.
+        assumption.
+      }
+      {
+        (* the write went through. *)
+        exists (state2 ++ bs).
+        intuition.
+      }
+    }
+    step_proc; exists (state2 ++ bs); intuition.
+  Qed.
 
   Definition reset : proc unit :=
     sz <- d.size;
