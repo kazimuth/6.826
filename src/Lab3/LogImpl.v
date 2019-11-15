@@ -570,7 +570,7 @@ log_abstraction ([block0; block1; len2]) ([block0; block1]).
   Theorem init_ok : init_abstraction init recover abstr inited_any.
   Proof.
     eapply then_init_compose; eauto.
-    unfold init'. unfold set_log_length.
+    unfold init'.
     step_proc.
     step_proc.
     step_proc.

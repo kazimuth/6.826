@@ -1,0 +1,4 @@
+> In the IronFleet paper, what is the spec for an overall system, what is the code that they prove meets the spec, and what is the sequence of arguments (e.g., different types of refinement) that the authors use in their proof? Which of these proof arguments are machine-checked, and which are done on paper? 
+
+The core spec is a "centralized, high-level specification", and is part of the system's trusted code base -- i.e. must be understood to be correct on paper. The system then refines this spec from the spec level to the protocol level, and from there to an imperative code spec. All layers are written in the Dafny language; the system manipulates Dafny to use different styles of proof at different layers, using a TLA+-like embedding to prove liveness propertie, and using hoare-style pre- and post-conditions at the implementation layer.
+

@@ -15,12 +15,100 @@ specifications and admit the correctness proof, and then you'll come back and
 finish the proof.
 *)
 
+(** TODO:
+- what is the relationship between the sizes of the disks?
+- theorem: at least one in two_disks_are is ok
+*)
+
+
+(** Stolen Ltac helpers. **)
+Ltac destruct_all :=
+  repeat match goal with
+         | _ => solve [ auto ]
+         | [ i: diskId |- _ ] => destruct i
+         | [ |- context[match ?s with
+                       | BothDisks _ _ => _
+                       | OnlyDisk0 _ => _
+                       | OnlyDisk1 _ => _
+                       end] ] => destruct s
+         | _ => simpl in *
+         end.
+
+Ltac inv_step :=
+  match goal with
+  | [ H: op_step _ _ _ _ |- _ ] =>
+    inversion H; subst; clear H;
+    repeat sigT_eq;
+    safe_intuition
+  end.
+
+Ltac inv_bg :=
+  match goal with
+  | [ H: bg_failure _ _ |- _ ] =>
+    inversion H; subst; clear H
+  end.
+
+Theorem maybe_holds_stable : forall state state' F0 F1,
+    disk0 state ?|= F0 ->
+    disk1 state ?|= F1 ->
+    bg_failure state state' ->
+    disk0 state' ?|= F0 /\
+    disk1 state' ?|= F1.
+Proof.
+  intros.
+  inv_bg; simpl in *; eauto.
+Qed.
+
+Ltac cleanup :=
+  repeat match goal with
+         | [ |- forall _, _ ] => intros
+         | |- _ /\ _ => split; [ solve [ eauto || congruence ] | ]
+         | |- _ /\ _ => split; [ | solve [ eauto || congruence ] ]
+         | [ H: Working _ = Working _ |- _ ] => inversion H; subst; clear H
+         | [ H: bg_failure _ _ |- _ ] =>
+           eapply maybe_holds_stable in H;
+           [ | solve [ eauto ] | solve [ eauto ] ]; destruct_ands
+         | [ H: _ ?|= eq _, H': _ = Some _ |- _ ] =>
+           pose proof (holds_some_inv_eq _ H' H); clear H
+         | [ H: ?A * ?B |- _ ] => destruct H
+         | [ H: DiskResult _ |- _ ] => destruct H
+         | _ => deex
+         | _ => destruct_tuple
+         | _ => progress unfold pre_step in *
+         | _ => progress autounfold in *
+         | _ => progress simpl in *
+         | _ => progress subst
+         | _ => progress safe_intuition
+         | _ => solve [ eauto ]
+         | _ => congruence
+         | _ => inv_step
+         | H: context[match ?expr with _ => _ end] |- _ =>
+           destruct expr eqn:?; [ | solve [ repeat cleanup ] ]
+         | H: context[match ?expr with _ => _ end] |- _ =>
+           destruct expr eqn:?; [ solve [ repeat cleanup ] | ]
+         end.
+
+Ltac prim :=
+  intros;
+  eapply proc_spec_weaken; [ eauto | unfold spec_impl ]; exists tt;
+  intuition eauto; cleanup;
+  intuition eauto; cleanup.
 
 Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
 
-  (* EXERCISE (4a): implement read *)
+  (* EXERCISE (4a): implement read (DONE) *)
   Definition read (a:addr) : proc block :=
-    Ret block0.
+    r1 <- td.read d0 a;
+    match r1 with
+    | Working v => Ret v
+    | Failed => (
+        r2 <- td.read d1 a;
+          match r2 with
+          | Working v => Ret v
+          | Failed => Ret block0 (* impossible *)
+          end
+      )
+    end.
 
   Definition write (a:addr) (b:block) : proc unit :=
     _ <- td.write d0 a b;
@@ -168,7 +256,7 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
   Hint Resolve missing0_implies_any : core.
   Hint Resolve missing1_implies_any : core.
 
-  (* EXERCISE (4a): prove this specification for read *)
+  (* EXERCISE (4a): prove this specification for read (DONE) *)
   Theorem read_int_ok : forall a,
       proc_spec
         (fun d state =>
@@ -187,16 +275,13 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
         td.abstr.
   Proof.
     unfold read.
-
-    (* Hint: use step instead of step_proc to take advantage of the new
-    automation in this lab. *)
-
     step.
-  Admitted.
+    repeat (destruct r; step).
+  Qed.
 
   Hint Resolve read_int_ok : core.
 
-  (* EXERCISE (4a): complete and prove this specification for write *)
+  (* EXERCISE (4a): complete and prove this specification for write (DONE) *)
   Theorem write_int_ok : forall a b,
       proc_spec
         (fun d state =>
@@ -212,19 +297,23 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
                  that this is the two-disk API's recovery, not the replicated
                  disk's recovery, so it should cover all the crash cases for
                  write *)
-             True;
+                 two_disks_are state' (eq d) (eq d) \/
+                 two_disks_are state' (eq (diskUpd d a b)) (eq d) \/
+                 two_disks_are state' (eq (diskUpd d a b)) (eq (diskUpd d a b))
+             ;
            |})
         (write a b)
         td.recover
         td.abstr.
   Proof.
     unfold write.
-
-  Admitted.
+    step.
+    repeat (destruct r; step).
+  Qed.
 
   Hint Resolve write_int_ok : core.
 
-  (* EXERCISE (4a): prove this specification for size *)
+  (* EXERCISE (4a): prove this specification for size (DONE) *)
   Theorem size_int_ok :
     proc_spec
       (fun '(d_0, d_1) state =>
@@ -245,8 +334,9 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
       td.abstr.
   Proof.
     unfold size.
-
-  Admitted.
+    step.
+    repeat (destruct r; step).
+  Qed.
 
   Hint Resolve size_int_ok : core.
 
@@ -302,7 +392,6 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
     induction a; simpl; intros.
     - step.
     - step.
-
       step.
       destruct r; finish.
       + step.
@@ -551,13 +640,16 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
 
   Hint Resolve recover_at_ok : core.
 
-  (* EXERCISE (4b): write a spec for recovery *)
+  (* EXERCISE (4b): write a spec for recovery (DONE) *)
   Definition Recover_spec : Specification _ unit unit TwoDiskBaseAPI.State :=
-    fun (_:unit) state =>
+    fun '(d, a, v) state =>
+      (* note: you can just put a out of bounds
+         if you don't need the write.*)
+      let d' := diskUpd d a v in
       {|
-        pre := True;
-        post := fun _ state' => True;
-        recovered := fun _ state' => True;
+        pre := two_disks_are state (eq d') (eq d') \/ two_disks_are state (eq d') (eq d);
+        post := fun _ state' => two_disks_are state' (eq d') (eq d');
+        recovered := fun _ state' => two_disks_are state' (eq d') (eq d') \/ two_disks_are state' (eq d') (eq d);
       |}.
 
   (* EXERCISE (4c): prove recovery correct *)
@@ -571,13 +663,18 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
   Admitted.
 
   (* EXERCISE (4b): prove that your recovery specification is idempotent; that
-  is, its recovered condition implies its precondition. *)
+  is, its recovered condition implies its precondition. (DONE) *)
   Theorem Recover_spec_idempotent :
     idempotent Recover_spec.
   Proof.
     unfold idempotent.
     intuition; simplify.
-  Admitted.
+    exists a.
+    destruct a as [a b].
+    destruct a as [d a].
+    simpl in *.
+    intuition.
+  Qed.
 
   (* This proof combines your proof that recovery is correct and that its
   specification is idempotent to show recovery is correct even if re-run on
@@ -632,22 +729,59 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
       destruct v; simplify; finish.
   Qed.
 
+  Print prod.
+
   (* EXERCISE (4b): prove that read, write, and size are correct when combined
-  with your recovery (using your specification but admitted proof). *)
+  with your recovery (using your specification but admitted proof). (DONE) *)
+
+  Definition triple A B C (a:A) (b:B) (c:C) := pair (pair a b) c.
+
+  Definition recover_ghost_noop (state : disk) :=
+    triple state (diskSize state) block0.
+
+  Ltac exists_recover_ghost_noop state :=
+      exists (recover_ghost_noop state);
+      simpl;
+      rewrite diskUpd_oob_noop by lia.
 
   Theorem read_ok : forall a, proc_spec (read_spec a) (read a) recover abstr.
   Proof.
     intros.
     apply spec_abstraction_compose; simpl.
     eapply compose_recovery; eauto; simplify.
-  Admitted.
+    unfold rd_abstraction in H0.
+    exists state2.
+    simplify.
+    split.
+    {
+      intros.
+      exists state2.
+      simplify.
+    }
+    {
+      intros.
+      exists_recover_ghost_noop state2.
+      intuition.
+      exists state2.
+      intuition.
+    }
+  Qed.
 
   Theorem write_ok : forall a v, proc_spec (write_spec a v) (write a v) recover abstr.
   Proof.
     intros.
     apply spec_abstraction_compose; simpl.
     eapply compose_recovery; eauto; simplify.
-  Admitted.
+    unfold rd_abstraction in *.
+    intuition.
+    exists state2. intuition.
+    (* post *)
+    { exists (diskUpd state2 a v). intuition. }
+    (* recovery: no write *)
+    { exists_recover_ghost_noop state2. intuition. exists state2. intuition. }
+    all: (exists (triple state2 a v); simpl; intuition;
+             exists (diskUpd state2 a v); intuition).
+  Qed.
 
   Theorem size_ok : proc_spec size_spec size recover abstr.
   Proof.
@@ -658,17 +792,26 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
     eapply compose_recovery; eauto.
     intros; apply exists_tuple2.
     destruct a; simpl in *.
-  Admitted.
+    exists s. exists s.
+    unfold rd_abstraction in H.
+    intuition.
+    - exists s. intuition.
+    - exists_recover_ghost_noop s. intuition. exists s. intuition.
+  Qed.
 
   (* This theorem shows that Ret does not modify the abstract state exposed by
   the replicated disk; the interesting part is that if recovery runs, then the
   only effect should be the wipe relation (the trivial relation [no_wipe] in
   this case) *)
-  (* EXERCISE (4b): prove this theorem using your recovery spec *)
+  (* EXERCISE (4b): prove this theorem using your recovery spec (DONE) *)
   Theorem recover_wipe : rec_wipe recover abstr no_wipe.
   Proof.
     eapply rec_wipe_compose; eauto; simpl.
     autounfold; unfold rd_abstraction, Recover_spec; simplify.
-  Admitted.
+    exists_recover_ghost_noop state0'.
+    intuition.
+    exists state0'.
+    intuition.
+  Qed.
 
 End ReplicatedDisk.

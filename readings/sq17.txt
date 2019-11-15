@@ -1,0 +1,1 @@
+I thought SMT solvers like Z3 only operated on finite problems -- how can they prove things about infinite / unbounded sets?
