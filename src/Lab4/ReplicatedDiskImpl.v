@@ -516,9 +516,23 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
   | RepairDoneOrFailed.
 
   (* EXERCISE (4c): implement [fixup], which should perform recovery for a
-  single address and indicate whether to continue or not. *)
+  single address and indicate whether to continue or not. (DONE) *)
   Definition fixup (a:addr) : proc RecStatus :=
-    Ret Continue.
+    r0 <- td.read d0 a;
+    match r0 with
+      | Failed => Ret RepairDoneOrFailed
+      | Working r0 =>
+          r1 <- td.read d1 a;
+            match r1 with
+            | Failed => Ret RepairDoneOrFailed
+            | Working r1 =>
+              if r0 == r1 then
+                Ret Continue
+              else
+                _ <- td.write d1 a r0;
+                Ret RepairDoneOrFailed
+            end
+    end.
 
   (* recursively performs recovery at [a-1], [a-2], down to 0 *)
   Fixpoint recover_at (a:addr) : proc unit :=
@@ -584,59 +598,250 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
   Hint Resolve PeanoNat.Nat.lt_neq : core.
   Hint Resolve disks_eq_inbounds : core.
 
+  Definition both_disks_live state :=
+    match state with
+    | BothDisks _ _ => True
+    | _ => False
+    end.
 
-  (* EXERCISE (4c): write and admit a specification for [fixup]. *)
+  Definition some_disk_dead state :=
+    match state with
+    | BothDisks _ _ => False
+    | _ => True
+    end.
+
+  (* EXERCISE (4c): write and admit a specification for [fixup]. (DONE) *)
   Theorem fixup_ok : forall a,
+      proc_spec
+        ((fun '(d, s) state =>
+           {|
+             pre :=
+               a < diskSize d /\
+               match s with
+               | FullySynced => two_disks_are state (eq d) (eq d)
+               | OutOfSync a' b => two_disks_are state (eq (diskUpd d a' b)) (eq d) /\
+                                  both_disks_live state /\
+                                  (diskUpd d a' b) <> d
+               end;
+             post :=
+               fun r state' =>
+                 match s with
+                 | FullySynced =>
+                   two_disks_are state' (eq d) (eq d)
+                 | OutOfSync a' b =>
+                   if a == a' then
+                     r = RepairDoneOrFailed /\
+                     (two_disks_are state' (eq (diskUpd d a' b)) (eq (diskUpd d a' b)) \/
+                       (* disk 0 failed concurrently during recovery *)
+                       state' = OnlyDisk1 d)
+                   else
+                     (r = Continue /\ two_disks_are state' (eq (diskUpd d a' b)) (eq d)) \/
+                     (r = RepairDoneOrFailed /\
+                      match state' with
+                      | BothDisks _ _ => False
+                      | OnlyDisk0 disk0 => disk0 = diskUpd d a' b
+                      | OnlyDisk1 disk1 => disk1 = d
+                      end)
+                 end;
+             recovered :=
+               fun _ state' =>
+                 match s with
+                 | FullySynced => two_disks_are state' (eq d) (eq d)
+                 | OutOfSync a' b =>
+                   if a == a' then
+                     (two_disks_are state' (eq (diskUpd d a' b)) (eq (diskUpd d a' b))) \/
+                     two_disks_are state' (eq (diskUpd d a' b)) (eq d)
+                   else
+                     two_disks_are state' (eq (diskUpd d a' b)) (eq d)
+                 end;
+           |}) : (prod disk DiskStatus) -> _ -> _)
+        (fixup a)
+        td.recover
+        td.abstr.
+  Proof.
+    (* EXERCISE (4d): prove [fixup_ok] (DONE) *)
+    intros.
+    step.
+    destruct s.
+    {
+      (* Fully synced. *)
+      exists d, (eq d).
+      intuition.
+      destruct r as [r|]; step.
+      - destruct r0 as [r0|].
+        + destruct (equal_dec r r0); step.
+        + step.
+    }
+    {
+      (* Not synced. *)
+      exists (diskUpd d a0 b), (eq d).
+      intuition.
+      - destruct (equal_dec a a0); intuition.
+      - destruct r as [r|]; step.
+        + exists d, (eq (diskUpd d a0 b)); destruct (a == a0); intuition;
+          destruct r0 as [r0|]; try destruct (r == r0); step.
+          (* OH GOD SO MANY CASES *)
+          { step; destruct r; intuition. }
+          destruct state1; intuition; unfold two_disks_are in H5; simpl in H5; intuition.
+        + destruct (a == a0); intuition; unfold two_disks_are in H3; simpl in H3;
+            destruct state0; compute in H3; intuition.
+        + destruct (a == a0); intuition.
+    }
+  Qed.
+
+  Hint Resolve fixup_ok : core.
+
+  Hint Resolve Lt.lt_n_Sm_le : core.
+
+  (* EXERCISE (4c): specify and prove recover_at *)
+  (* Hint: use [induction a] *)
+
+  (* recover goes down; the base case is the bottom of the disk.
+     we need to show that, if the borked block was below the current iteration,
+     it has been stamped out; or not, in the case of recovery.
+   *)
+  Theorem recover_at_ok : forall a,
       proc_spec
         (fun '(d, s) state =>
            {|
              pre :=
                a < diskSize d /\
                match s with
-               | FullySynced => True
-               | OutOfSync a' b => True
+               | FullySynced => two_disks_are state (eq d) (eq d)
+               | OutOfSync a' b => two_disks_are state (eq (diskUpd d a' b)) (eq d) /\
+                                  both_disks_live state /\
+                                  ((diskUpd d a' b) <> d)
                end;
              post :=
-               fun r state' =>
+               fun _ state' =>
                  match s with
-                 | FullySynced => True
-                 | OutOfSync a' b => True
+                 | FullySynced => two_disks_are state' (eq d) (eq d)
+                 | OutOfSync a' b =>
+                   if lt_dec a' a then
+                     two_disks_are state' (eq (diskUpd d a' b)) (eq (diskUpd d a' b)) \/
+                     state' = OnlyDisk1 d
+                   else
+                     two_disks_are state' (eq (diskUpd d a' b)) (eq d)
                  end;
              recovered :=
                fun _ state' =>
                  match s with
-                 | FullySynced => True
-                 | OutOfSync a' b => True
+                 | FullySynced => two_disks_are state' (eq d) (eq d)
+                 | OutOfSync a' b =>
+                   if lt_dec a' a then
+                     (two_disks_are state' (eq (diskUpd d a' b)) (eq (diskUpd d a' b))) \/
+                     two_disks_are state' (eq (diskUpd d a' b)) (eq d)
+                   else
+                     two_disks_are state' (eq (diskUpd d a' b)) (eq d)
                  end;
-           |})
-        (fixup a)
-        td.recover
-        td.abstr.
-  Proof.
-    (* EXERCISE (4d): prove [fixup_ok] *)
-  Admitted.
-
-  Hint Resolve fixup_ok : core.
-
-  (* Hint Resolve Lt.lt_n_Sm_le. *)
-
-  (* EXERCISE (4c): specify and prove recover_at *)
-  (* Hint: use [induction a] *)
-  Theorem recover_at_ok : forall a,
-      proc_spec
-        (fun (_:unit) state =>
-           {|
-             pre := True;
-             post :=
-               fun r state' => True;
-             recovered :=
-               fun _ state' => True
            |})
         (recover_at a)
         td.recover
         td.abstr.
   Proof.
-  Admitted.
+    induction a; unfold recover_at.
+    { step; destruct s; intuition. }
+    step.
+    destruct s.
+    {
+      (* We're fully synced. *)
+      exists d, FullySynced.
+      intuition; simplify.
+      destruct r; step.
+      exists d, FullySynced.
+      intuition; simplify.
+    }
+    {
+      (* We're out of sync! *)
+      destruct state.
+      {
+        exists d, (OutOfSync a0 b).
+        intuition; simplify.
+        { destruct (lt_dec a0 (S a)); destruct (equal_dec a a0); simplify. }
+        destruct r.
+        {
+          (* Continue. *)
+          step.
+          destruct state.
+          {
+            destruct (equal_dec a a0); intuition; try discriminate.
+            exists d, (OutOfSync a0 b).
+            intuition; destruct (lt_dec a0 (S a)); destruct (lt_dec a0 a); simpl; intuition; try lia.
+          }
+          {
+            destruct (equal_dec a a0); intuition; try discriminate.
+            exists (diskUpd d a0 b), FullySynced.
+            clear IHa.
+            intuition; destruct (lt_dec a0 (S a)); destruct (lt_dec a0 a); simpl; intuition; try lia.
+            - rewrite diskUpd_size. lia.
+            - rewrite diskUpd_size. lia.
+            - unfold two_disks_are in *. simpl in *. intuition.
+
+            }
+
+          }
+        }
+        {
+          (* RepairDoneOrFailed. *)
+          step_proc; clear IHa.
+          {
+            (* returned conditions. *)
+            unfold two_disks_are in *.
+            destruct (lt_dec a0 (S a)); destruct (equal_dec a a0); destruct state;
+              intuition; simplify; discriminate.
+          }
+          {
+            unfold two_disks_are in *.
+            destruct (lt_dec a0 (S a)); destruct (equal_dec a a0); destruct state;
+              intuition; simplify.
+            - discriminate.
+            - discriminate.
+            - right. intuition. congruence.
+          }
+        }
+      }
+      {
+        unfold two_disks_are in *. simpl in *.
+        intuition.
+        exists (diskUpd d a0 b), (FullySynced).
+        intuition.
+        { rewrite diskUpd_size. lia. }
+        { destruct (lt_dec a0 (S a)); intuition. admit. }
+        { destruct r.
+          {
+            step.
+
+          }
+
+
+        -
+        -
+        -
+
+        intuition; simplify.
+
+      }
+      destruct r; step.
+      (* Continue returned. *)
+      exists d, FullySynced.
+      intuition; try lia.
+    }
+
+    - destruct s; intuition.
+
+    destruct H as [Heq | Hneq]; intuition; try lia.
+    - exists d, FullySynced; intuition.
+      + admit.
+      +
+
+    - unfold recover_at; step
+    unfold recover_at; step.
+    unfold recover_at.
+    step.
+    intuition.
+    step_proc.
+
+  Qed.
 
   Hint Resolve recover_at_ok : core.
 
@@ -729,15 +934,11 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
       destruct v; simplify; finish.
   Qed.
 
-  Print prod.
-
   (* EXERCISE (4b): prove that read, write, and size are correct when combined
   with your recovery (using your specification but admitted proof). (DONE) *)
 
-  Definition triple A B C (a:A) (b:B) (c:C) := pair (pair a b) c.
-
   Definition recover_ghost_noop (state : disk) :=
-    triple state (diskSize state) block0.
+    (state, diskSize state, block0).
 
   Ltac exists_recover_ghost_noop state :=
       exists (recover_ghost_noop state);
@@ -779,7 +980,7 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
     { exists (diskUpd state2 a v). intuition. }
     (* recovery: no write *)
     { exists_recover_ghost_noop state2. intuition. exists state2. intuition. }
-    all: (exists (triple state2 a v); simpl; intuition;
+    all: (exists (state2, a, v); simpl; intuition;
              exists (diskUpd state2 a v); intuition).
   Qed.
 
