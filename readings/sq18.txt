@@ -1,0 +1,1 @@
+How are the flow tables actually executed? Are they running in hardware or software on the switches?

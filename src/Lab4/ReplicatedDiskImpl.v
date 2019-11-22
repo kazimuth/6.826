@@ -519,19 +519,19 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
   single address and indicate whether to continue or not. (DONE) *)
   Definition fixup (a:addr) : proc RecStatus :=
     r0 <- td.read d0 a;
+    r1 <- td.read d1 a;
     match r0 with
       | Failed => Ret RepairDoneOrFailed
       | Working r0 =>
-          r1 <- td.read d1 a;
-            match r1 with
-            | Failed => Ret RepairDoneOrFailed
-            | Working r1 =>
-              if r0 == r1 then
-                Ret Continue
-              else
-                _ <- td.write d1 a r0;
-                Ret RepairDoneOrFailed
-            end
+        match r1 with
+        | Failed => Ret RepairDoneOrFailed
+        | Working r1 =>
+          if r0 == r1 then
+            Ret Continue
+          else
+            _ <- td.write d1 a r0;
+            Ret RepairDoneOrFailed
+        end
     end.
 
   (* recursively performs recovery at [a-1], [a-2], down to 0 *)
@@ -631,7 +631,7 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
 
   Hint Resolve death_permanent_refl : core.
 
-  (* EXERCISE (4c): write and admit a specification for [fixup]. (DONE) *)
+  (* EXERCISE (4c): write and admit a specification for [fixup]. *)
   Theorem fixup_ok : forall a,
       proc_spec
         ((fun '(d, s) state =>
@@ -640,8 +640,7 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
                a < diskSize d /\
                match s with
                | FullySynced => two_disks_are state (eq d) (eq d)
-               | OutOfSync a' b => two_disks_are state (eq (diskUpd d a' b)) (eq d) /\
-                                  both_disks_live state /\
+               | OutOfSync a' b => state = BothDisks (diskUpd d a' b) d /\
                                   (diskUpd d a' b) <> d
                end;
              post :=
@@ -650,19 +649,14 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
                  | FullySynced =>
                    two_disks_are state' (eq d) (eq d)
                  | OutOfSync a' b =>
-                   if a == a' then
-                     r = RepairDoneOrFailed /\
-                     (two_disks_are state' (eq (diskUpd d a' b)) (eq (diskUpd d a' b)) \/
-                       (* disk 0 failed concurrently during recovery *)
-                       state' = OnlyDisk1 d)
-                   else
-                     (r = Continue /\ two_disks_are state' (eq (diskUpd d a' b)) (eq d)) \/
-                     (r = RepairDoneOrFailed /\
-                      match state' with
-                      | BothDisks _ _ => False
-                      | OnlyDisk0 disk0 => disk0 = diskUpd d a' b
-                      | OnlyDisk1 disk1 => disk1 = d
-                      end)
+                   (r = RepairDoneOrFailed /\
+                     ((a = a' /\ two_disks_are state'
+                                               (eq (diskUpd d a' b))
+                                               (eq (diskUpd d a' b))) \/
+                     state' = OnlyDisk0 (diskUpd d a' b) \/
+                     state' = OnlyDisk1 d)) \/
+                   (r = Continue /\
+                     a <> a' /\ state' = BothDisks (diskUpd d a' b) d
                  end;
              recovered :=
                fun _ state' =>
@@ -670,8 +664,7 @@ Module ReplicatedDisk (td : TwoDiskAPI) <: OneDiskAPI.
                  | FullySynced => two_disks_are state' (eq d) (eq d)
                  | OutOfSync a' b =>
                    if a == a' then
-                     (two_disks_are state' (eq (diskUpd d a' b)) (eq (diskUpd d a' b))) \/
-                     two_disks_are state' (eq (diskUpd d a' b)) (eq d)
+                     (two_disks_are state' (eq (diskUpd d a' b)) (eq (diskUpd d a' b)))
                    else
                      two_disks_are state' (eq (diskUpd d a' b)) (eq d)
                  end;
