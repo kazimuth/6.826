@@ -1,0 +1,1 @@
+Is this approach at all portable to a multicore kernel or would it completely fall down?

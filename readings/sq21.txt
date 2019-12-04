@@ -1,0 +1,5 @@
+Is this technique in any way applicable to sidechannel attacks, or do you just have to find and plug those holes up by hand?
+
+Also, the paper states that the certikos kernel non-preemptive. Doesn't that mean that one process can still completely monopolize the machine? What's the point of the security guarantees if processes can still prevent each other from functioning?
+
+

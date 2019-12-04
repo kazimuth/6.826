@@ -1,0 +1,8 @@
+> Suppose we want to make sure that a two-block disk can securely store two users' data (one block for each user). In particular, if user A calls Write(0, data) to write their data to block 0, then as long as user B invokes the same disk API (Read() and Write()), but does not call Read(0), then user B cannot retrieve A's data.
+> 1. Why does the OneDiskAPI specification from the lab assignments not guarantee this property? In other words, what implementation might both satisfy OneDiskAPI and still leak data in violation of our security goal above?
+
+The specification doesn't define what's returned for out-of-bounds reads, so they could legally return the other user's data; for example, if the program returned Read(i % disk_length).
+
+> 2. How does the observation function help CertiKOS prove the absence of such bugs? What part of the proof do you expect will fail to go through? 
+
+The system would show information flow into user A's observable data from user B, which would break the proof.

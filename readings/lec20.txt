@@ -1,0 +1,5 @@
+> The designers of the hyperkernel move functions that hard to verify in a push-button approach to user space and don't verify those functions. What is the benefit in verifying the remaining kernel code? That is, what important guarantee does the hyperkernel provide, even though much "kernel" code is in user space? 
+
+It means it's possible to verify the entire "kernel", modulo glue code. This means that e.g. problems in the network interface can't compromise the filesystem and vice versa. That's been a problem in Linux over time, where everything is shoved into an enormous
+
+Of course the resulting hyperkernel system is significantly slower and the kernel is entirely single-threaded, which makes actual deployment a dubious prospect.
